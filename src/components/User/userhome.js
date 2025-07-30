@@ -1,19 +1,20 @@
 import React, { useState, useEffect } from "react";
 import {
-  AppBar, Toolbar, Typography, IconButton, Drawer, List, ListItem, ListItemIcon, ListItemText, Box, Collapse, Button,
+  AppBar, Toolbar, Typography, IconButton, Drawer, List, ListItem, ListItemIcon, ListItemText, Box, Button,
   Dialog, DialogTitle, DialogContent, DialogActions, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper,
-  Chip, Tooltip, CircularProgress, Menu, MenuItem,
+  Chip, Tooltip, CircularProgress, Menu, MenuItem, Card, CardContent, Collapse
 } from "@mui/material";
+import { useTheme, useMediaQuery } from '@mui/material';
 import MenuIcon from "@mui/icons-material/Menu";
 import HomeFilledIcon from "@mui/icons-material/HomeFilled";
 import BookOnlineSharpIcon from "@mui/icons-material/BookOnlineSharp";
 import AssessmentIcon from "@mui/icons-material/Assessment";
 import LogoutOutlinedIcon from "@mui/icons-material/LogoutOutlined";
 import AccountCircleOutlinedIcon from "@mui/icons-material/AccountCircleOutlined";
-import ExpandLess from "@mui/icons-material/ExpandLess";
-import ExpandMore from "@mui/icons-material/ExpandMore";
-import ArrowRightOutlinedIcon from "@mui/icons-material/ArrowRightOutlined";
-import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
+import ArticleIcon from "@mui/icons-material/Article";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
+import MoreVertIcon from "@mui/icons-material/MoreVert";
 import { useNavigate } from "react-router-dom";
 import CreateTicketForm from "./createticket.js";
 import ViewTickets from "./viewticket.js";
@@ -23,7 +24,7 @@ import { db } from "../../firebase.js";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
-const drawerWidth = 280;
+const drawerWidth = { xs: 60, sm: 280 };
 
 const statusColorMap = {
   Closed: "success",
@@ -36,17 +37,20 @@ const UserHome = () => {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [username, setUsername] = useState("");
   const [organization, setOrganization] = useState("");
-  const [ticketManagementOpen, setTicketManagementOpen] = useState(false);
   const [selectedPage, setSelectedPage] = useState("dashboard");
+  const [selectedKnowledgeTab, setSelectedKnowledgeTab] = useState("faq");
   const [selectedTicketId, setSelectedTicketId] = useState(null);
   const navigate = useNavigate();
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
-  const [closedTickets, setClosedTickets] = useState([]);
+  const [closedTicketsWithRemarks, setClosedTicketsWithRemarks] = useState([]);
   const [loadingClosed, setLoadingClosed] = useState(false);
-
-  // Menu for download options
+  const [expandedTicketIdx, setExpandedTicketIdx] = useState(null);
+  const [selectedTicketDetails, setSelectedTicketDetails] = useState(null);
   const [anchorEl, setAnchorEl] = useState(null);
+  const [selectedTicketForDownload, setSelectedTicketForDownload] = useState(null);
   const openDownloadMenu = Boolean(anchorEl);
+  const theme = useTheme();
+  const isSmallScreen = useMediaQuery(theme?.breakpoints?.down("sm") ?? ((theme) => theme.breakpoints.down("sm")));
 
   useEffect(() => {
     const storedUsername = sessionStorage.getItem("username");
@@ -58,18 +62,23 @@ const UserHome = () => {
           const userSnap = await getDoc(userRef);
           if (userSnap.exists()) {
             const data = userSnap.data();
-            setOrganization(data.orgName || data.organization || "Not Assigned");
+            const org = data.orgName || data.organization || "Not Assigned";
+            setOrganization(org);
+          } else {
+            setOrganization("Not Assigned");
           }
         } catch (error) {
           setOrganization("Not Assigned");
         }
       };
       fetchOrganization();
+    } else {
+      navigate("/Login");
     }
   }, [navigate]);
 
   useEffect(() => {
-    if (selectedPage === "reports" && username) {
+    if ((selectedPage === "reports" || (selectedPage === "knowledge-base" && selectedKnowledgeTab === "remarks")) && username) {
       setLoadingClosed(true);
       const fetchClosedTickets = async () => {
         try {
@@ -79,34 +88,39 @@ const UserHome = () => {
             where("status", "==", "Closed")
           );
           const snapshot = await getDocs(q);
-          const closed = [];
+          const closedWithRemarks = [];
           snapshot.forEach(docSnap => {
-            closed.push({ id: docSnap.id, ...docSnap.data() });
+            const data = docSnap.data();
+            if (Array.isArray(data.remarks) && data.remarks.length > 0) {
+              closedWithRemarks.push({ id: docSnap.id, ...data });
+            }
           });
-          setClosedTickets(closed);
+          setClosedTicketsWithRemarks(closedWithRemarks);
         } catch (error) {
-          setClosedTickets([]);
+          setClosedTicketsWithRemarks([]);
         }
         setLoadingClosed(false);
       };
       fetchClosedTickets();
     }
-  }, [selectedPage, username]);
+  }, [selectedPage, selectedKnowledgeTab, username]);
 
   const handleMenuClick = (pageKey) => {
-    if (selectedPage === pageKey) {
-      setDrawerOpen(!drawerOpen);
-    } else {
-      setSelectedPage(pageKey);
-      setDrawerOpen(true);
-    }
+    setSelectedPage(pageKey);
+    if (isSmallScreen) setDrawerOpen(false);
+  };
+
+  const handleKnowledgeTab = (tabKey) => {
+    setSelectedKnowledgeTab(tabKey);
+    setExpandedTicketIdx(null);
   };
 
   const getListItemStyles = (itemKey) => ({
     borderRadius: selectedPage === itemKey ? "50px" : "0px",
     backgroundColor: selectedPage === itemKey ? "#0072D0" : "transparent",
-    mx: 1,
+    mx: { xs: 0.5, sm: 1 },
     my: 0.5,
+    minHeight: 48,
     "&:hover": {
       backgroundColor: "#005f87",
       borderRadius: "50px",
@@ -123,7 +137,6 @@ const UserHome = () => {
     setLogoutDialogOpen(true);
   };
 
-  // PDF per-ticket, each with its own file named by ticket id
   const downloadPDF = (ticket) => {
     const docPDF = new jsPDF();
     docPDF.setFontSize(18);
@@ -174,7 +187,6 @@ const UserHome = () => {
     docPDF.setFont(undefined, "normal"); docPDF.text(ticket.status, 50, y);
     y += 10;
 
-    // Remarks
     docPDF.setFont(undefined, "bold");
     docPDF.text("Remarks:", 15, y);
     docPDF.setFont(undefined, "normal");
@@ -201,9 +213,6 @@ const UserHome = () => {
 
     docPDF.save(`ticket${ticket.id}.pdf`);
   };
-
-  // CSV for all closed tickets
-  // In your component:
 
   const downloadCSVForTicket = (ticket) => {
     const createdAt = ticket.createdAt?.seconds
@@ -237,7 +246,6 @@ const UserHome = () => {
         `"${remarksString}"`
       ].join(",") + "\n";
 
-    // Download
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -248,35 +256,46 @@ const UserHome = () => {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
   };
-  // Download menu handlers
-  const handleDownloadClick = (event) => {
+
+  const handleDownloadClick = (event, ticket) => {
     setAnchorEl(event.currentTarget);
+    setSelectedTicketForDownload(ticket);
   };
+
   const handleDownloadClose = () => {
+    setAnchorEl(null);
+    setSelectedTicketForDownload(null);
+  };
+
+  const handleDownloadPDFOption = () => {
+    if (selectedTicketForDownload) {
+      downloadPDF(selectedTicketForDownload);
+    }
     setAnchorEl(null);
   };
 
-  // For PDF: Show menu of tickets. On click, generate that ticket's PDF.
-  const handleDownloadPDFOption = (ticket) => {
-    downloadPDF(ticket);
+  const handleDownloadCSVOption = () => {
+    if (selectedTicketForDownload) {
+      downloadCSVForTicket(selectedTicketForDownload);
+    }
     setAnchorEl(null);
   };
-  // For CSV: Just call downloadCSV
-  const handleDownloadCSVOption = () => {
-    downloadCSVForTicket();
-    setAnchorEl(null);
+
+  const handleTicketClick = (ticket) => {
+    setSelectedTicketDetails(ticket);
   };
 
   const cellStyles = {
-    fontSize: "1rem",
+    fontSize: { xs: "0.8rem", sm: "0.9rem", md: "1rem" },
     color: "#20253a",
     verticalAlign: "top",
     borderBottom: "1px solid #e0e7ef",
+    py: { xs: 1, sm: 1.5 },
   };
 
   const chipStyles = {
     fontWeight: 600,
-    fontSize: "0.9rem",
+    fontSize: { xs: "0.75rem", sm: "0.85rem", md: "0.9rem" },
     letterSpacing: "0.03em",
   };
 
@@ -284,126 +303,147 @@ const UserHome = () => {
     background: "#f3f6fb",
     color: "#123499",
     fontWeight: 700,
-    fontSize: "1.07rem",
+    fontSize: { xs: "0.85rem", sm: "0.95rem", md: "1.07rem" },
     borderBottom: "2px solid #dde3ee",
+    py: { xs: 1, sm: 1.5 },
   };
 
   return (
-    <Box sx={{ display: "flex" }}>
-      <AppBar position="fixed" sx={{ backgroundColor: "#123499", zIndex: (theme) => theme.zIndex.drawer + 1 }}>
+    <Box sx={{ display: "flex", minHeight: "100vh" }}>
+      <AppBar
+        position="fixed"
+        sx={{
+          backgroundColor: "#123499",
+          zIndex: (theme) => theme.zIndex.drawer + 1,
+          px: { xs: 1, sm: 2 },
+        }}
+        role="banner"
+        aria-label="Main Navigation"
+      >
         <Toolbar sx={{ justifyContent: "space-between" }}>
           <Box sx={{ display: "flex", alignItems: "center" }}>
-            <IconButton color="inherit" onClick={() => setDrawerOpen(!drawerOpen)} edge="start" sx={{ mr: 2 }}>
+            <IconButton
+              color="inherit"
+              onClick={() => setDrawerOpen(!drawerOpen)}
+              edge="start"
+              sx={{ mr: { xs: 1, sm: 2 }, minWidth: 48, minHeight: 48 }}
+              aria-label="Toggle Navigation Drawer"
+            >
               <MenuIcon />
             </IconButton>
             <Typography
               variant="h6"
               noWrap
               component="div"
-              sx={{ fontSize: "1.8rem", fontFamily: "'Playfair Display', serif" }}
+              sx={{
+                fontSize: { xs: "1.2rem", sm: "1.5rem", md: "1.8rem" },
+                fontFamily: "'Playfair Display', serif",
+              }}
             >
               Welcome, {username}
             </Typography>
-          </Box>
-          <Box>
-            <Button
-              color="inherit"
-              onClick={() => setSelectedPage("faqs")}
-              sx={{ fontFamily: "'PT Serif', serif", mx: 1, fontSize: "1rem", borderBottom: selectedPage === "faqs" ? "2px solid white" : "none" }}
-            >
-              FAQs
-            </Button>
-            <Button
-              color="inherit"
-              onClick={() => setSelectedPage("articles")}
-              sx={{ fontFamily: "'PT Serif', serif", mx: 1, fontSize: "1rem", borderBottom: selectedPage === "articles" ? "2px solid white" : "none" }}
-            >
-              Articles
-            </Button>
           </Box>
         </Toolbar>
       </AppBar>
 
       <Drawer
-        variant="permanent"
+        variant={isSmallScreen ? "temporary" : "permanent"}
         open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
         sx={{
-          width: drawerOpen ? drawerWidth : 70,
+          width: drawerOpen ? drawerWidth : { xs: 60, sm: 70 },
           flexShrink: 0,
           "& .MuiDrawer-paper": {
-            width: drawerOpen ? drawerWidth : 70,
+            width: drawerOpen ? drawerWidth : { xs: 60, sm: 70 },
             backgroundColor: "#123499",
             color: "#fff",
             transition: "width 0.3s",
             overflowX: "hidden",
+            boxSizing: "border-box",
           },
         }}
+        role="navigation"
+        aria-label="Sidebar Navigation"
       >
         <Toolbar />
         <List>
-          <ListItem button onClick={() => handleMenuClick("dashboard")} sx={getListItemStyles("dashboard")}>
-            <ListItemIcon sx={{ color: "white" }}>
-              <HomeFilledIcon sx={{ fontSize: "1.8rem" }} />
-            </ListItemIcon>
-            {drawerOpen && <ListItemText primary="Home" primaryTypographyProps={{ fontSize: "1.1rem", fontFamily: "'PT Serif', serif" }} />}
-          </ListItem>
-          <ListItem button onClick={() => {
-            setTicketManagementOpen(!ticketManagementOpen);
-            handleMenuClick("ticket-management");
-          }} sx={getListItemStyles("ticket-management")}>
-            <ListItemIcon sx={{ color: "white" }}>
-              <BookOnlineSharpIcon sx={{ fontSize: "1.8rem" }} />
+          {[
+            { key: "dashboard", text: "Home", icon: <HomeFilledIcon sx={{ fontSize: { xs: "1.5rem", sm: "1.8rem" } }} /> },
+            { key: "create-ticket", text: "Create Ticket", icon: <BookOnlineSharpIcon sx={{ fontSize: { xs: "1.5rem", sm: "1.8rem" } }} /> },
+            { key: "view-ticket", text: "View/Edit Ticket", icon: <BookOnlineSharpIcon sx={{ fontSize: { xs: "1.5rem", sm: "1.8rem" } }} /> },
+            { key: "knowledge-base", text: "Knowledge Base", icon: <ArticleIcon sx={{ fontSize: { xs: "1.5rem", sm: "1.8rem" } }} /> },
+            { key: "reports", text: "Reports", icon: <AssessmentIcon sx={{ fontSize: { xs: "1.5rem", sm: "1.8rem" } }} /> },
+            { key: "logout", text: "Logout", icon: <LogoutOutlinedIcon sx={{ fontSize: { xs: "1.5rem", sm: "1.8rem" } }} />, onClick: handleLogout },
+          ].map(item => (
+            <ListItem
+              button
+              key={item.key}
+              onClick={() => item.onClick ? item.onClick() : handleMenuClick(item.key)}
+              sx={getListItemStyles(item.key)}
+              aria-label={item.text}
+            >
+              <ListItemIcon sx={{ color: "white", minWidth: { xs: 40, sm: 56 } }}>
+                {item.icon}
+              </ListItemIcon>
+              {drawerOpen && (
+                <ListItemText
+                  primary={item.text}
+                  primaryTypographyProps={{
+                    fontSize: { xs: "0.9rem", sm: "1.1rem" },
+                    fontFamily: "'PT Serif', serif",
+                  }}
+                />
+              )}
+            </ListItem>
+          ))}
+        </List>
+        <Box sx={{ mt: "auto", p: { xs: 1, sm: 2 } }}>
+          <ListItem>
+            <ListItemIcon sx={{ color: "white", minWidth: { xs: 40, sm: 56 } }}>
+              <AccountCircleOutlinedIcon sx={{ fontSize: { xs: "1.5rem", sm: "1.8rem" } }} />
             </ListItemIcon>
             {drawerOpen && (
-              <>
-                <ListItemText primary="Ticket Management" primaryTypographyProps={{ fontSize: "1.1rem", fontFamily: "'PT Serif', serif" }} />
-                {ticketManagementOpen ? <ExpandLess /> : <ExpandMore />}
-              </>
+              <ListItemText
+                primary={username}
+                primaryTypographyProps={{
+                  fontSize: { xs: "0.9rem", sm: "1rem" },
+                  fontFamily: "'PT Serif', serif",
+                  fontWeight: 500,
+                }}
+              />
             )}
-          </ListItem>
-          <Collapse in={ticketManagementOpen && drawerOpen} timeout="auto" unmountOnExit>
-            <List component="div" disablePadding sx={{ pl: 4 }}>
-              {[
-                { key: "create-ticket", label: "Create Ticket" },
-                { key: "view-ticket", label: "View/Edit Ticket" },
-              ].map((item) => (
-                <ListItem button key={item.key} onClick={() => handleMenuClick(item.key)} sx={getListItemStyles(item.key)}>
-                  <ListItemIcon sx={{ color: "white" }}>
-                    <ArrowRightOutlinedIcon sx={{ fontSize: "1.5rem" }} />
-                  </ListItemIcon>
-                  <ListItemText primary={item.label} primaryTypographyProps={{ fontSize: "1rem", fontFamily: "'PT Serif', serif" }} />
-                </ListItem>
-              ))}
-            </List>
-          </Collapse>
-          <ListItem button onClick={() => handleMenuClick("reports")} sx={getListItemStyles("reports")}>
-            <ListItemIcon sx={{ color: "white" }}>
-              <AssessmentIcon sx={{ fontSize: "1.8rem" }} />
-            </ListItemIcon>
-            {drawerOpen && <ListItemText primary="Reports" primaryTypographyProps={{ fontSize: "1.1rem", fontFamily: "'PT Serif', serif" }} />}
-          </ListItem>
-          <ListItem button onClick={handleLogout}>
-            <ListItemIcon sx={{ color: "white" }}>
-              <LogoutOutlinedIcon sx={{ fontSize: "1.8rem" }} />
-            </ListItemIcon>
-            {drawerOpen && <ListItemText primary="Logout" primaryTypographyProps={{ fontSize: "1.1rem", fontFamily: "'PT Serif', serif" }} />}
-          </ListItem>
-        </List>
-        <Box sx={{ mt: "auto", p: 2 }}>
-          <ListItem>
-            <ListItemIcon sx={{ color: "white" }}>
-              <AccountCircleOutlinedIcon sx={{ fontSize: "1.8rem" }} />
-            </ListItemIcon>
-            {drawerOpen && <ListItemText primary={username} primaryTypographyProps={{ fontSize: "1rem", fontFamily: "'PT Serif', serif", fontWeight: 500 }} />}
           </ListItem>
         </Box>
       </Drawer>
 
-      <Box component="main" sx={{ flexGrow: 1, p: 3, mt: 8, minHeight: "100vh", backgroundColor: "#E5E5E5" }}>
+      <Box
+        component="main"
+        sx={{
+          flexGrow: 1,
+          p: { xs: 2, sm: 3 },
+          mt: 8,
+          minHeight: "100vh",
+          backgroundColor: "#E5E5E5",
+          boxSizing: "border-box",
+          width: { xs: "100%", sm: `calc(100% - ${drawerOpen ? drawerWidth.sm : 70}px)` },
+        }}
+        role="main"
+        aria-label="Main Content"
+      >
         {selectedPage === "dashboard" && (
           <Box>
-            <Typography variant="h5">Dashboard Content Here</Typography>
-            <Typography variant="h6" sx={{ mt: 2, color: "#123499", fontFamily: "'Playfair Display', serif" }}>
+            <Typography variant="h5" sx={{ mb: 2, fontSize: { xs: "1.25rem", sm: "1.5rem" }, color: "#123499" }}>
+              Dashboard Content Here
+            </Typography>
+            <Typography
+              variant="h6"
+              sx={{
+                mt: 2,
+                color: "#123499",
+                fontFamily: "'Playfair Display', serif",
+                fontSize: { xs: "1rem", sm: "1.25rem" },
+              }}
+            >
               Organization: {organization}
             </Typography>
           </Box>
@@ -418,62 +458,231 @@ const UserHome = () => {
             }}
           />
         )}
-        {selectedPage === "faqs" && <KnowledgeBase type="faq" />}
-        {selectedPage === "articles" && <KnowledgeBase type="article" />}
+        {selectedPage === "knowledge-base" && (
+          <Box sx={{ width: "100%", maxWidth: { xs: "95%", sm: 600, md: 800 }, mx: "auto" }}>
+            <Typography
+              variant="h5"
+              sx={{
+                mb: 2,
+                color: "#123499",
+                fontSize: { xs: "1.25rem", sm: "1.5rem" },
+              }}
+            >
+              Knowledge Base
+            </Typography>
+            <Box sx={{ display: "flex", flexWrap: "wrap", gap: { xs: 1, sm: 2 }, mb: 3 }}>
+              {[
+                { key: "faq", label: "FAQs" },
+                { key: "article", label: "Articles" },
+                { key: "remarks", label: "Past Ticket Remarks" },
+              ].map(tab => (
+                <Button
+                  key={tab.key}
+                  variant={selectedKnowledgeTab === tab.key ? "contained" : "outlined"}
+                  color="primary"
+                  onClick={() => handleKnowledgeTab(tab.key)}
+                  sx={{
+                    borderRadius: 8,
+                    px: { xs: 2, sm: 3 },
+                    fontWeight: 700,
+                    textTransform: "none",
+                    fontFamily: "'PT Serif', serif",
+                    fontSize: { xs: "0.85rem", sm: "1rem" },
+                    minWidth: 48,
+                    minHeight: 48,
+                  }}
+                  aria-selected={selectedKnowledgeTab === tab.key}
+                  role="tab"
+                >
+                  {tab.label}
+                </Button>
+              ))}
+            </Box>
+            {selectedKnowledgeTab === "faq" && organization && organization !== "Not Assigned" && (
+              <KnowledgeBase type="faq" organization={organization} />
+            )}
+            {selectedKnowledgeTab === "article" && organization && organization !== "Not Assigned" && (
+              <KnowledgeBase type="article" organization={organization} />
+            )}
+            {selectedKnowledgeTab === "remarks" && (
+              <Box>
+                <Typography
+                  variant="h6"
+                  sx={{
+                    mb: 2,
+                    color: "#123499",
+                    fontSize: { xs: "1rem", sm: "1.25rem" },
+                  }}
+                >
+                  Past Ticket Remarks
+                </Typography>
+                {loadingClosed ? (
+                  <Box sx={{ textAlign: "center", mt: 3 }}>
+                    <CircularProgress size={32} color="primary" />
+                  </Box>
+                ) : closedTicketsWithRemarks.length === 0 ? (
+                  <Typography
+                    color="text.secondary"
+                    sx={{ mt: 2, textAlign: "center", fontSize: { xs: "0.9rem", sm: "1rem" } }}
+                  >
+                    No past ticket remarks found.
+                  </Typography>
+                ) : (
+                  <Box>
+                    {closedTicketsWithRemarks.map((ticket, idx) => (
+                      <Card
+                        key={ticket.id}
+                        sx={{
+                          mb: 2,
+                          borderRadius: 2,
+                          boxShadow: "0 2px 8px 0 rgba(18, 52, 153, 0.09)",
+                          background: "#f7faff",
+                          border: "1px solid #dde3ee",
+                        }}
+                      >
+                        <CardContent>
+                          <Box
+                            sx={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              cursor: "pointer",
+                            }}
+                            onClick={() => setExpandedTicketIdx(idx === expandedTicketIdx ? null : idx)}
+                          >
+                            <Typography
+                              sx={{
+                                fontWeight: 700,
+                                fontSize: { xs: "1rem", sm: "1.15rem" },
+                                color: "#1976d2",
+                                fontFamily: "'PT Serif', serif",
+                              }}
+                            >
+                              {ticket.problem || "Untitled Ticket"}
+                            </Typography>
+                            {expandedTicketIdx === idx ? (
+                              <ExpandLessIcon sx={{ color: "#1976d2" }} />
+                            ) : (
+                              <ExpandMoreIcon sx={{ color: "#1976d2" }} />
+                            )}
+                          </Box>
+                          <Collapse in={expandedTicketIdx === idx} timeout="auto" unmountOnExit>
+                            <Box sx={{ mt: 2 }}>
+                              <Chip
+                                label={`Ticket ID: ${ticket.id}`}
+                                sx={{
+                                  bgcolor: "#e3edfa",
+                                  color: "#123499",
+                                  fontWeight: 800,
+                                  fontFamily: "monospace",
+                                  fontSize: { xs: "0.8rem", sm: "0.9rem" },
+                                  mb: 1,
+                                }}
+                              />
+                              <Chip
+                                label={ticket.status}
+                                color={statusColorMap[ticket.status] || "default"}
+                                sx={{
+                                  fontWeight: 700,
+                                  fontSize: { xs: "0.75rem", sm: "0.85rem" },
+                                  textTransform: "capitalize",
+                                  mb: 1,
+                                  ml: 1,
+                                }}
+                              />
+                              <Typography
+                                sx={{
+                                  fontSize: { xs: "0.9rem", sm: "1rem" },
+                                  fontWeight: 600,
+                                  color: "#246",
+                                  mb: 1,
+                                }}
+                              >
+                                <span style={{ color: "#0072D0" }}>Department:</span> {ticket.department || "N/A"}
+                              </Typography>
+                              <Box sx={{ pl: 1 }}>
+                                {ticket.remarks.map((remark, rmidx) => (
+                                  <Box
+                                    key={rmidx}
+                                    sx={{
+                                      mb: 2,
+                                      p: { xs: 1.5, sm: 2 },
+                                      borderRadius: 2,
+                                      background: "#e9f3fa",
+                                      borderLeft: "5px solid #1976d2",
+                                      boxShadow: "0 1px 4px 0 rgba(18, 52, 153, 0.08)",
+                                    }}
+                                  >
+                                    <Typography sx={{ fontSize: { xs: "0.85rem", sm: "1rem" }, mt: 1, color: "#444", fontWeight: 500 }}>
+                                      {remark.text}
+                                    </Typography>
+                                  </Box>
+                                ))}
+                              </Box>
+                            </Box>
+                          </Collapse>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </Box>
+                )}
+              </Box>
+            )}
+            {(selectedKnowledgeTab === "faq" || selectedKnowledgeTab === "article" || selectedKnowledgeTab === "remarks") &&
+              (!organization || organization === "Not Assigned") && (
+                <Typography
+                  variant="body1"
+                  color="error"
+                  sx={{ mt: 3, textAlign: "center", fontSize: { xs: "0.9rem", sm: "1rem" } }}
+                >
+                  No valid organization assigned. Please contact support.
+                </Typography>
+              )}
+          </Box>
+        )}
 
         {selectedPage === "reports" && (
           <Box>
-            <Typography variant="h5" sx={{ mb: 2, color: "#123499" }}>Closed Ticket Reports</Typography>
-            <Button
-              variant="contained"
-              color="primary"
-              endIcon={<ArrowDropDownIcon />}
-              onClick={handleDownloadClick}
-              disabled={closedTickets.length === 0}
-              sx={{ mb: 2 }}
+            <Typography
+              variant="h5"
+              sx={{
+                mb: 2,
+                color: "#123499",
+                fontSize: { xs: "1.25rem", sm: "1.5rem" },
+              }}
             >
-              Download
-            </Button>
-            <Menu
-              anchorEl={anchorEl}
-              open={openDownloadMenu}
-              onClose={handleDownloadClose}
-              MenuListProps={{ 'aria-labelledby': 'download-button' }}
+              Closed Ticket Reports
+            </Typography>
+            <TableContainer
+              component={Paper}
+              sx={{
+                boxShadow: 4,
+                mt: 2,
+                background: "#f9fafd",
+                maxWidth: "100%",
+                overflowX: "auto",
+              }}
             >
-              {closedTickets.map(ticket => (
-                <React.Fragment key={ticket.id}>
-                  <MenuItem
-                    disabled={!ticket.id}
-                    onClick={() => handleDownloadPDFOption(ticket)}
-                  >
-                    Download as PDF ({ticket.id})
-                  </MenuItem>
-                  <MenuItem
-                    disabled={!ticket.id}
-                    onClick={() => downloadCSVForTicket(ticket)}
-                  >
-                    Download as CSV ({ticket.id})
-                  </MenuItem>
-                </React.Fragment>
-              ))}
-            </Menu>
-            <TableContainer component={Paper} sx={{
-              borderRadius: 3,
-              boxShadow: 4,
-              mt: 2,
-              background: "#f9fafd"
-            }}>
-              <Table size="small">
+              <Table
+                size="small"
+                aria-label="Closed Tickets Table"
+              >
                 <TableHead>
                   <TableRow>
-                    <TableCell sx={tableHeaderStyles}>Ticket ID</TableCell>
-                    <TableCell sx={tableHeaderStyles}>Problem</TableCell>
-                    <TableCell sx={tableHeaderStyles}>Department</TableCell>
-                    <TableCell sx={tableHeaderStyles}>Description</TableCell>
-                    <TableCell sx={tableHeaderStyles}>Created At</TableCell>
-                    <TableCell sx={tableHeaderStyles}>Closed At</TableCell>
-                    <TableCell sx={tableHeaderStyles}>Status</TableCell>
-                    <TableCell sx={tableHeaderStyles}>Remarks</TableCell>
+                    {[
+                      "Ticket ID",
+                      "Problem",
+                      "Department",
+                      "Created At",
+                      "Closed At",
+                      "Status",
+                      "Remarks",
+                      "Actions",
+                    ].map(header => (
+                      <TableCell key={header} sx={tableHeaderStyles} scope="col">
+                        {header}
+                      </TableCell>
+                    ))}
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -483,21 +692,26 @@ const UserHome = () => {
                         <CircularProgress size={28} color="primary" />
                       </TableCell>
                     </TableRow>
-                  ) : closedTickets.length === 0 ? (
+                  ) : closedTicketsWithRemarks.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={8} align="center">
-                        <Typography color="text.secondary" fontSize={16}>
+                        <Typography
+                          color="text.secondary"
+                          sx={{ fontSize: { xs: "0.85rem", sm: "1rem" } }}
+                        >
                           No closed tickets found.
                         </Typography>
                       </TableCell>
                     </TableRow>
-                  ) : closedTickets.map((ticket) => (
+                  ) : closedTicketsWithRemarks.map((ticket) => (
                     <TableRow
                       key={ticket.id}
+                      onClick={() => handleTicketClick(ticket)}
                       sx={{
                         background: "#fff",
                         "&:hover": { background: "#e9f3fa" },
-                        transition: "background 0.1s"
+                        transition: "background 0.1s",
+                        cursor: "pointer",
                       }}
                     >
                       <TableCell sx={cellStyles}>
@@ -529,19 +743,6 @@ const UserHome = () => {
                           sx={chipStyles}
                         />
                       </TableCell>
-                      <TableCell sx={{ ...cellStyles, maxWidth: 180 }}>
-                        <Tooltip title={ticket.description || "N/A"} arrow>
-                          <span style={{
-                            display: "inline-block",
-                            maxWidth: 170,
-                            whiteSpace: "nowrap",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis"
-                          }}>
-                            {ticket.description || <i>N/A</i>}
-                          </span>
-                        </Tooltip>
-                      </TableCell>
                       <TableCell sx={cellStyles}>
                         {ticket.createdAt?.seconds
                           ? new Date(ticket.createdAt.seconds * 1000).toLocaleString()
@@ -570,15 +771,15 @@ const UserHome = () => {
                       </TableCell>
                       <TableCell sx={cellStyles}>
                         {Array.isArray(ticket.remarks) && ticket.remarks.length > 0
-                          ? ticket.remarks.map((remark, idx) => (
+                          ? ticket.remarks.slice(0, 2).map((remark, idx) => (
                             <Box key={idx} sx={{ mb: 1, pl: 1, borderLeft: "2px solid #1976d2" }}>
-                              <Typography sx={{ fontSize: "0.85rem" }}>
+                              <Typography sx={{ fontSize: { xs: "0.75rem", sm: "0.85rem" } }}>
                                 <b>Status:</b> {remark.status}
                               </Typography>
-                              <Typography sx={{ fontSize: "0.85rem" }}>
+                              <Typography sx={{ fontSize: { xs: "0.75rem", sm: "0.85rem" } }}>
                                 <b>By:</b> {remark.by} <b>At:</b> {new Date(remark.at).toLocaleString()}
                               </Typography>
-                              <Typography sx={{ fontSize: "0.85rem" }}>
+                              <Typography sx={{ fontSize: { xs: "0.75rem", sm: "0.85rem" } }}>
                                 <b>Remarks:</b> {remark.text}
                               </Typography>
                               <Box sx={{ my: 0.5 }} />
@@ -586,12 +787,195 @@ const UserHome = () => {
                           ))
                           : <Typography variant="body2" color="text.secondary">No remarks</Typography>
                         }
+                        {ticket.remarks?.length > 2 && (
+                          <Typography sx={{ fontSize: { xs: "0.75rem", sm: "0.85rem" }, color: "#1976d2" }}>
+                            +{ticket.remarks.length - 2} more remarks
+                          </Typography>
+                        )}
+                      </TableCell>
+                      <TableCell sx={cellStyles}>
+                        <IconButton
+                          onClick={(e) => handleDownloadClick(e, ticket)}
+                          size="small"
+                          sx={{ color: "#123499", minWidth: 48, minHeight: 48 }}
+                          aria-label={`Download options for ticket ${ticket.id}`}
+                        >
+                          <MoreVertIcon />
+                        </IconButton>
+                        <Menu
+                          anchorEl={anchorEl}
+                          open={openDownloadMenu && selectedTicketForDownload?.id === ticket.id}
+                          onClose={handleDownloadClose}
+                          MenuListProps={{ 'aria-labelledby': `download-button-${ticket.id}` }}
+                        >
+                          <MenuItem
+                            onClick={handleDownloadPDFOption}
+                            sx={{ fontSize: { xs: "0.85rem", sm: "1rem" }, minHeight: 48 }}
+                          >
+                            Download as PDF
+                          </MenuItem>
+                          <MenuItem
+                            onClick={handleDownloadCSVOption}
+                            sx={{ fontSize: { xs: "0.85rem", sm: "1rem" }, minHeight: 48 }}
+                          >
+                            Download as CSV
+                          </MenuItem>
+                        </Menu>
                       </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
             </TableContainer>
+
+            {selectedTicketDetails && (
+              <Dialog
+                open={Boolean(selectedTicketDetails)}
+                onClose={() => setSelectedTicketDetails(null)}
+                maxWidth="md"
+                fullWidth
+                sx={{ "& .MuiDialog-paper": { maxWidth: { xs: "95%", sm: 600, md: 900 } } }}
+                aria-labelledby="ticket-details-dialog-title"
+                aria-describedby="ticket-details-dialog-description"
+              >
+                <DialogTitle
+                  id="ticket-details-dialog-title"
+                  sx={{
+                    backgroundColor: "#123499",
+                    color: "#fff",
+                    fontFamily: "'Playfair Display', serif",
+                    fontSize: { xs: "1.25rem", sm: "1.5rem" },
+                  }}
+                >
+                  Ticket Details - {selectedTicketDetails.id}
+                </DialogTitle>
+                <DialogContent>
+                  <Box sx={{ p: { xs: 1.5, sm: 2 } }}>
+                    <Typography
+                      variant="h6"
+                      sx={{
+                        mb: 1,
+                        color: "#123499",
+                        fontSize: { xs: "1rem", sm: "1.25rem" },
+                      }}
+                      id="ticket-details-dialog-description"
+                    >
+                      Problem: {selectedTicketDetails.problem || "N/A"}
+                    </Typography>
+                    <Typography
+                      variant="subtitle1"
+                      sx={{
+                        mb: 1,
+                        color: "#444",
+                        fontSize: { xs: "0.9rem", sm: "1rem" },
+                      }}
+                    >
+                      <strong>Department:</strong> {selectedTicketDetails.department || "N/A"}
+                    </Typography>
+                    <Typography
+                      variant="body1"
+                      sx={{
+                        mb: 2,
+                        color: "#444",
+                        fontSize: { xs: "0.9rem", sm: "1rem" },
+                      }}
+                    >
+                      <strong>Description:</strong> {selectedTicketDetails.description || "N/A"}
+                    </Typography>
+                    <Typography
+                      variant="subtitle1"
+                      sx={{
+                        mb: 1,
+                        color: "#444",
+                        fontSize: { xs: "0.9rem", sm: "1rem" },
+                      }}
+                    >
+                      <strong>Created At:</strong> {selectedTicketDetails.createdAt?.seconds
+                        ? new Date(selectedTicketDetails.createdAt.seconds * 1000).toLocaleString()
+                        : "N/A"}
+                    </Typography>
+                    <Typography
+                      variant="subtitle1"
+                      sx={{
+                        mb: 1,
+                        color: "#444",
+                        fontSize: { xs: "0.9rem", sm: "1rem" },
+                      }}
+                    >
+                      <strong>Closed At:</strong> {selectedTicketDetails.closedAt?.seconds
+                        ? new Date(selectedTicketDetails.closedAt.seconds * 1000).toLocaleString()
+                        : selectedTicketDetails.remarks && Array.isArray(selectedTicketDetails.remarks)
+                          ? (() => {
+                            const lastRemark = selectedTicketDetails.remarks[selectedTicketDetails.remarks.length - 1];
+                            return lastRemark?.at
+                              ? new Date(lastRemark.at).toLocaleString()
+                              : "N/A";
+                          })()
+                          : "N/A"}
+                    </Typography>
+                    <Typography
+                      variant="subtitle1"
+                      sx={{
+                        mb: 1,
+                        color: "#444",
+                        fontSize: { xs: "0.9rem", sm: "1rem" },
+                      }}
+                    >
+                      <strong>Status:</strong> {selectedTicketDetails.status}
+                    </Typography>
+                    <Typography
+                      variant="h6"
+                      sx={{
+                        mt: 2,
+                        mb: 1,
+                        color: "#123499",
+                        fontSize: { xs: "1rem", sm: "1.25rem" },
+                      }}
+                    >
+                      Remarks:
+                    </Typography>
+                    {Array.isArray(selectedTicketDetails.remarks) && selectedTicketDetails.remarks.length > 0 ? (
+                      selectedTicketDetails.remarks.map((remark, idx) => (
+                        <Box
+                          key={idx}
+                          sx={{
+                            mb: 2,
+                            p: { xs: 1.5, sm: 2 },
+                            borderRadius: 2,
+                            background: "#e9f3fa",
+                            borderLeft: "5px solid #1976d2",
+                          }}
+                        >
+                          <Typography sx={{ fontSize: { xs: "0.85rem", sm: "1rem" }, color: "#444" }}>
+                            <strong>Status:</strong> {remark.status}
+                          </Typography>
+                          <Typography sx={{ fontSize: { xs: "0.85rem", sm: "1rem" }, color: "#444" }}>
+                            <strong>By:</strong> {remark.by} <strong>At:</strong> {new Date(remark.at).toLocaleString()}
+                          </Typography>
+                          <Typography sx={{ fontSize: { xs: "0.85rem", sm: "1rem" }, color: "#444" }}>
+                            <strong>Text:</strong> {remark.text}
+                          </Typography>
+                        </Box>
+                      ))
+                    ) : (
+                      <Typography color="text.secondary" sx={{ fontSize: { xs: "0.85rem", sm: "1rem" } }}>
+                        No remarks available
+                      </Typography>
+                    )}
+                  </Box>
+                </DialogContent>
+                <DialogActions>
+                  <Button
+                    onClick={() => setSelectedTicketDetails(null)}
+                    color="primary"
+                    sx={{ minWidth: 48, minHeight: 48, fontSize: { xs: "0.85rem", sm: "1rem" } }}
+                    aria-label="Close Ticket Details"
+                  >
+                    Close
+                  </Button>
+                </DialogActions>
+              </Dialog>
+            )}
           </Box>
         )}
 
@@ -599,14 +983,42 @@ const UserHome = () => {
           open={logoutDialogOpen}
           onClose={() => setLogoutDialogOpen(false)}
           aria-labelledby="logout-dialog-title"
+          aria-describedby="logout-dialog-description"
+          sx={{ "& .MuiDialog-paper": { maxWidth: { xs: "90%", sm: 400 } } }}
         >
-          <DialogTitle id="logout-dialog-title">Confirm Logout</DialogTitle>
+          <DialogTitle
+            id="logout-dialog-title"
+            sx={{ fontSize: { xs: "1.25rem", sm: "1.5rem" } }}
+          >
+            Confirm Logout
+          </DialogTitle>
           <DialogContent>
-            <Typography variant="body1">Are you sure you want to logout?</Typography>
+            <Typography
+              id="logout-dialog-description"
+              variant="body1"
+              sx={{ fontSize: { xs: "0.9rem", sm: "1rem" } }}
+            >
+              Are you sure you want to logout?
+            </Typography>
           </DialogContent>
           <DialogActions>
-            <Button onClick={() => setLogoutDialogOpen(false)} color="primary">Cancel</Button>
-            <Button onClick={confirmLogout} color="error" variant="contained">Logout</Button>
+            <Button
+              onClick={() => setLogoutDialogOpen(false)}
+              color="primary"
+              sx={{ minWidth: 48, minHeight: 48, fontSize: { xs: "0.85rem", sm: "1rem" } }}
+              aria-label="Cancel Logout"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={confirmLogout}
+              color="error"
+              variant="contained"
+              sx={{ minWidth: 48, minHeight: 48, fontSize: { xs: "0.85rem", sm: "1rem" } }}
+              aria-label="Confirm Logout"
+            >
+              Logout
+            </Button>
           </DialogActions>
         </Dialog>
       </Box>

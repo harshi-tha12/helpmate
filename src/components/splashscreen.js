@@ -1,7 +1,7 @@
 import React, { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import CircularProgress from "@mui/material/CircularProgress";
+import { Box, CircularProgress, Typography } from "@mui/material";
 
 const SplashScreen = () => {
   const navigate = useNavigate();
@@ -15,32 +15,42 @@ const SplashScreen = () => {
   }, [navigate]);
 
   return (
-    <div
-      style={{
-        background: "linear-gradient(135deg,rgb(146, 59, 239), #90E0EF)", // Gradient background
-        color: "#FFFFFF", // White text for better contrast
+    <Box
+      sx={{
+        background: "linear-gradient(135deg, #923BEF, #90E0EF)", // Gradient background
+        color: "#FFFFFF", // White text for contrast
         display: "flex",
         justifyContent: "center",
         alignItems: "center",
         flexDirection: "column",
-        height: "100vh", // Full screen height
+        minHeight: "100vh", // Changed to minHeight
+        width: "100%", // Prevent overflow
+        overflowX: "hidden",
       }}
+      role="region"
+      aria-label="Helpmate Splash Screen"
     >
       {/* Animated Title */}
-      <motion.h1
-        className="display-3 fw-bold"
+      <motion.div
         initial={{ opacity: 0, y: -30 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 1 }}
-        style={{
-          fontFamily: "'Poppins', sans-serif",
-          fontSize: "7rem",
-          fontFamily: "PT serif",
-          textShadow: "2px 2px 4px rgba(0, 0, 0, 0.4)", // Text shadow for a glowing effect
-        }}
       >
-        Helpmate
-      </motion.h1>
+        <Typography
+          variant="h1"
+          sx={{
+            fontFamily: "'PT Serif', serif",
+            fontWeight: "bold",
+            fontSize: { xs: "2.5rem", sm: "4rem", md: "5rem", lg: "6rem" }, // Responsive font size
+            textShadow: "1px 1px 3px rgba(0, 0, 0, 0.3)", // Simplified shadow
+            textAlign: "center",
+            px: { xs: 2, sm: 0 }, // Padding for small screens
+          }}
+          aria-label="Helpmate Title"
+        >
+          Helpmate
+        </Typography>
+      </motion.div>
 
       {/* Subtle Loading Spinner */}
       <motion.div
@@ -49,13 +59,22 @@ const SplashScreen = () => {
         transition={{ delay: 1, duration: 1 }}
       >
         <CircularProgress
+          size={{ xs: 32, sm: 40 }} // Responsive spinner size
           sx={{
-            color: "#FFFFFF", // White spinner
-            mt: 2, // Margin on top
+            color: "#FFFFFF",
+            mt: { xs: 1.5, sm: 2 }, // Adjusted margin
           }}
+          aria-label="Loading"
         />
+        <Typography
+          variant="srOnly" // Visually hidden for screen readers
+          sx={{ position: "absolute", width: 1, height: 1, overflow: "hidden" }}
+          aria-live="polite"
+        >
+          Loading Helpmate, please wait...
+        </Typography>
       </motion.div>
-    </div>
+    </Box>
   );
 };
 

@@ -10,7 +10,7 @@ import AdminDashboard from "./components/Admin/adminhome";
 import AgentDashboard from "./components/Agent/agenthome";
 import UserHome from "./components/User/userhome";
 import TicketDetails from "./components/Admin/ticketdetails";
-import TicketDetailsPage from "./components/Admin/ticketdetpage";
+
 
 function App() {
   return (
@@ -23,8 +23,8 @@ function App() {
         <Route path="/admindashboard" element={<AdminDashboard />} />
         <Route path="/agentdashboard" element={<AgentDashboard />} />
         <Route path="/userdashboard" element={<UserHome />} />
-        <Route path="/ticketdetails" element={<TicketDetails />} />
-        <Route path="/ticketassignpage/:ticketId" element={<TicketDetailsPage />} />
+        
+        
 
       </Routes>
     </Router>

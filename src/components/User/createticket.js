@@ -1,44 +1,102 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
-  TextField,
-  Typography,
-  MenuItem,
-  Button,
-  Paper,
-  IconButton,
-  Box,
-  FormLabel,
-  Alert,
-  Dialog,
-  DialogContent,
-  CircularProgress,
-  Fade,
+  TextField, Typography, MenuItem, Button, Paper, IconButton, Box,
+  FormLabel, Alert, Dialog, DialogTitle, DialogContent, CircularProgress, Fade
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import { useTheme, useMediaQuery } from "@mui/material";
 import { db } from "../../firebase.js";
 import { doc, setDoc, Timestamp, getDoc } from "firebase/firestore";
 import axios from "axios";
 import Confetti from "react-confetti";
+import { prioritizeTickets } from '../../api/aipriority';
+import { getAiSuggestions } from "../../api/aisuggest";
 
-const CLOUDINARY_URL = "https://api.cloudinary.com/v1_1/diogwsroa/upload";
+const CLOUDINARY_URL = "https://api.cloudin1ary.com/v1_1/diogwsroa/upload";
 const UPLOAD_PRESET = "helpmate_upload";
 
 const CreateTicketForm = ({ onClose, username }) => {
   const [ticketId, setTicketId] = useState("");
   const [type, setType] = useState("");
   const [problem, setProblem] = useState("");
-  const [department, setDepartment] = useState("");
   const [description, setDescription] = useState("");
   const [file, setFile] = useState(null);
   const [fileName, setFileName] = useState("");
   const [error, setError] = useState("");
   const [successOpen, setSuccessOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [slogan, setSlogan] = useState("");
+  const [responseTime, setResponseTime] = useState("");
+  const [suggestions, setSuggestions] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(true);
+  const [organization, setOrganization] = useState("");
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [problemError, setProblemError] = useState(false);
+  const [typeError, setTypeError] = useState(false);
+  const [descriptionError, setDescriptionError] = useState(false);
+
+  const theme = useTheme();
+  const isSmallScreen = useMediaQuery(theme?.breakpoints?.down("sm") ?? ((theme) => theme.breakpoints.down("sm")));
+
+  // Debounce for suggestion API
+  const debounceTimeout = useRef();
 
   useEffect(() => {
     setTicketId("TICKET-" + Date.now());
-  }, []);
+    // Fetch user organization
+    const fetchUserOrg = async () => {
+      if (!username) {
+        setError("User not logged in. Cannot fetch organization.");
+        return;
+      }
+      try {
+        const userRef = doc(db, "Users", username);
+        const userSnap = await getDoc(userRef);
+        if (userSnap.exists()) {
+          const userData = userSnap.data();
+          const orgName = userData.orgName || userData.organization || "";
+          if (!orgName) {
+            setError("Organization not set in user profile. Please contact admin.");
+          }
+          setOrganization(orgName);
+        } else {
+          setError("User not found in the database.");
+        }
+      } catch (error) {
+        console.error("Error fetching user organization:", error);
+        setError("Failed to fetch user organization. Please try again.");
+      }
+    };
+    fetchUserOrg();
+  }, [username]);
+
+  useEffect(() => {
+    // Auto-fetch suggestions as description changes
+    if (description.length >= 10 && organization) {
+      setSuggestionsLoading(true);
+      clearTimeout(debounceTimeout.current);
+      debounceTimeout.current = setTimeout(async () => {
+        try {
+          const aiSugs = await getAiSuggestions({ description, organization });
+          setSuggestions(aiSugs || []);
+        } catch (e) {
+          console.warn("Failed to fetch AI suggestions:", e);
+          setSuggestions([]);
+        } finally {
+          setSuggestionsLoading(false);
+        }
+      }, 600); // Debounce by 600ms
+    } else {
+      setSuggestions([]);
+      setSuggestionsLoading(false);
+    }
+    return () => clearTimeout(debounceTimeout.current);
+  }, [description, organization]);
+
+  const handleIgnoreSuggestions = () => {
+    setShowSuggestions(false);
+  };
 
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
@@ -72,9 +130,41 @@ const CreateTicketForm = ({ onClose, username }) => {
     e.preventDefault();
     setLoading(true);
     setError("");
+    setProblemError(false);
+    setTypeError(false);
+    setDescriptionError(false);
+
+    // Validate required fields
+    let hasError = false;
+    if (!problem) {
+      setProblemError(true);
+      setError("Please fill all required fields.");
+      hasError = true;
+    }
+    if (!type) {
+      setTypeError(true);
+      setError("Please fill all required fields.");
+      hasError = true;
+    }
+    if (!description) {
+      setDescriptionError(true);
+      setError("Please fill all required fields.");
+      hasError = true;
+    }
+    if (hasError) {
+      setLoading(false);
+      return;
+    }
 
     if (!username) {
       setError("User not logged in. Cannot submit ticket.");
+      setLoading(false);
+      return;
+    }
+
+    if (problem.length > 100) {
+      setError("Problem title must be 100 characters or less.");
+      setProblemError(true);
       setLoading(false);
       return;
     }
@@ -87,17 +177,28 @@ const CreateTicketForm = ({ onClose, username }) => {
         formData.append("upload_preset", UPLOAD_PRESET);
         formData.append("resource_type", "auto");
 
-        const uploadResponse = await axios.post(CLOUDINARY_URL, formData, {
-          timeout: 30000,
-        });
+        try {
+          const uploadResponse = await axios.post(CLOUDINARY_URL, formData, {
+            timeout: 30000,
+          });
 
-        if (!uploadResponse.data.secure_url) {
-          throw new Error("File upload failed: No secure_url returned.");
+          if (!uploadResponse.data.secure_url) {
+            throw new Error("File upload failed: No secure_url returned.");
+          }
+          fileUrl = uploadResponse.data.secure_url;
+        } catch (uploadError) {
+          console.error("Cloudinary upload error:", uploadError);
+          if (uploadError.response?.status === 404) {
+            setError("File upload failed: Cloudinary endpoint not found. Please check the Cloudinary configuration or try again later.");
+          } else {
+            setError(`File upload failed: ${uploadError.message || "Unknown error"}. Please try again.`);
+          }
+          setLoading(false);
+          return;
         }
-        fileUrl = uploadResponse.data.secure_url;
       }
 
-      // Fetch organization from Users/{username} doc
+      // Get user info
       const userRef = doc(db, "Users", username);
       const userSnap = await getDoc(userRef);
       if (!userSnap.exists()) {
@@ -106,7 +207,6 @@ const CreateTicketForm = ({ onClose, username }) => {
         return;
       }
       const userData = userSnap.data();
-      // FIX: Try both orgName and organization, prefer orgName if available
       const organization = userData.orgName || userData.organization;
       if (!organization) {
         setError("Organization not set in user profile. Please contact admin.");
@@ -114,17 +214,71 @@ const CreateTicketForm = ({ onClose, username }) => {
         return;
       }
 
+      // Get AI prioritization
+      let priority = "Medium";
+      let resolutionTime = "3 business days";
+      let reason = "";
+      try {
+        const priorityArr = await prioritizeTickets([
+          { problem, description, type },
+        ]);
+        const aiResult = priorityArr?.[0] || {};
+        priority = aiResult.priority || "Medium";
+        resolutionTime = aiResult.resolutionTime || "3 business days";
+        reason = aiResult.reason || "";
+      } catch (aiError) {
+        console.warn("AI prioritization failed, using defaults:", aiError);
+      }
+
+      // Fetch SLA settings for the organization based on priority
+      let slaSlogan = "We're here to help you quickly!";
+      let days = 0, hours = 0, minutes = 0;
+      try {
+        const slaRef = doc(db, "Organizations", organization, "SLASettings", priority);
+        const slaSnap = await getDoc(slaRef);
+        if (slaSnap.exists()) {
+          const slaData = slaSnap.data();
+          days = slaData.days || 0;
+          hours = slaData.hours || 0;
+          minutes = slaData.minutes || 0;
+          slaSlogan = slaData.slogan || slaSlogan;
+        } else {
+          console.warn(`No SLA settings found for organization ${organization} and priority ${priority}. Using defaults.`);
+        }
+      } catch (slaError) {
+        console.warn("Failed to fetch SLA settings:", slaError);
+      }
+
+      // Combine response time into a single string (e.g., "1day,2hours,5minutes")
+      let combinedResponseTime = "";
+      if (days > 0) combinedResponseTime += `${days}day${days > 1 ? 's' : ''},`;
+      if (hours > 0) combinedResponseTime += `${hours}hour${hours > 1 ? 's' : ''},`;
+      if (minutes > 0) combinedResponseTime += `${minutes}minute${minutes > 1 ? 's' : ''}`;
+      // Remove trailing comma if it exists
+      combinedResponseTime = combinedResponseTime.replace(/,$/, '');
+      if (!combinedResponseTime) combinedResponseTime = "0day"; // Fallback if all are zero
+      setResponseTime(combinedResponseTime);
+      setSlogan(slaSlogan);
+
+      // Use resolutionTime from getAiSuggestions if available in suggestions
+      let aiResolutionTime = "3 business days"; // Default
+      if (suggestions.length > 0 && suggestions[0].resolutionTime) {
+        aiResolutionTime = suggestions[0].resolutionTime;
+      }
+
       const ticketData = {
         ticketId,
         type,
         problem,
-        department,
         description,
         fileUrl,
         createdAt: Timestamp.now(),
         createdBy: username,
         status: "Pending",
-        organization, // This is stored as organization: orgname
+        organization,
+        priority: { priority, reason }, // Store priority as object
+        resolutionTime: resolutionTime,
+        responseTime: combinedResponseTime,
       };
 
       await setDoc(doc(db, "tickets", ticketId), ticketData);
@@ -134,12 +288,15 @@ const CreateTicketForm = ({ onClose, username }) => {
         setSuccessOpen(false);
         setType("");
         setProblem("");
-        setDepartment("");
         setDescription("");
         setFile(null);
         setFileName("");
+        setSlogan("");
+        setResponseTime("");
+        setSuggestions([]);
+        setShowSuggestions(true);
         if (onClose) onClose();
-      }, 3000);
+      }, 5000);
     } catch (error) {
       console.error("Error submitting ticket:", error);
       setError(`Error: ${error.message}`);
@@ -148,33 +305,64 @@ const CreateTicketForm = ({ onClose, username }) => {
     }
   };
 
+  // Inline AI Suggestion Card rendering
+  const renderSuggestions = () => {
+    if (!showSuggestions || suggestionsLoading) return null;
+    if (!suggestions.length) return null;
+    return (
+      <Box sx={{ my: 2, p: 2, border: "1px solid #b3c6e0", borderRadius: "8px", background: "#f6faff" }}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 600, color: "#123499", mb: 1 }}>
+          Related Past Solutions:
+        </Typography>
+        <ul style={{ paddingLeft: 0, listStyle: "none" }}>
+          {suggestions.map((s) => (
+            <li key={s.ticketId} style={{ marginBottom: 12, border: '1px solid #ccc', padding: 8, borderRadius: 6 }}>
+              <strong>Problem:</strong> {s.problem}<br />
+              <strong>Solution:</strong> {s.remarks}<br />
+              <small>Similarity: {(s.similarity * 100).toFixed(1)}%</small>
+            </li>
+          ))}
+        </ul>
+        <Button onClick={handleIgnoreSuggestions} color="primary" variant="outlined" sx={{ mt: 1 }}>
+          Hide Suggestions
+        </Button>
+      </Box>
+    );
+  };
+
   return (
     <>
       <Fade in={true} timeout={600}>
         <Paper
           elevation={6}
           sx={{
-            p: 4,
-            maxWidth: 700,
+            p: { xs: 2, sm: 3, md: 4 },
+            maxWidth: { xs: "95%", sm: 600, md: 700 },
             mx: "auto",
-            mt: 4,
+            mt: { xs: 2, sm: 3, md: 4 },
             background: "linear-gradient(135deg, #E6F0FA 0%, #F5F5F5 100%)",
             borderRadius: "16px",
             fontFamily: "'Outfit', sans-serif",
             position: "relative",
             boxShadow: "0 8px 24px rgba(18, 52, 153, 0.15)",
+            boxSizing: "border-box",
           }}
+          role="form"
+          aria-label="Create New Ticket Form"
         >
           {onClose && (
             <IconButton
               onClick={onClose}
               sx={{
                 position: "absolute",
-                top: 12,
-                right: 12,
+                top: { xs: 8, sm: 12 },
+                right: { xs: 8, sm: 12 },
                 color: "#123499",
                 "&:hover": { bgcolor: "#DDE9FF" },
+                minWidth: 48,
+                minHeight: 48,
               }}
+              aria-label="Close Form"
             >
               <CloseIcon />
             </IconButton>
@@ -189,6 +377,7 @@ const CreateTicketForm = ({ onClose, username }) => {
               fontWeight: 700,
               fontFamily: "'Outfit', sans-serif",
               letterSpacing: "0.5px",
+              fontSize: { xs: "1.5rem", sm: "1.75rem", md: "2rem" },
             }}
           >
             Create a New Ticket
@@ -197,84 +386,100 @@ const CreateTicketForm = ({ onClose, username }) => {
           <Typography
             variant="subtitle1"
             sx={{
-              mb: 3,
+              mb: { xs: 2, sm: 3 },
               textAlign: "center",
               color: "#123499",
               fontFamily: "'Outfit', sans-serif",
               fontWeight: 500,
+              fontSize: { xs: "0.9rem", sm: "1rem" },
             }}
           >
             Ticket ID: <strong>{ticketId}</strong>
           </Typography>
 
           <form onSubmit={handleSubmit}>
-            <Box sx={{ mb: 2.5 }}>
+            <Box sx={{ mb: { xs: 2, sm: 2.5 } }}>
               <FormLabel
+                htmlFor="problem-title"
                 sx={{
                   fontFamily: "'Outfit', sans-serif",
                   color: "#123499",
                   fontWeight: 500,
                   mb: 0.5,
+                  fontSize: { xs: "0.85rem", sm: "0.9rem" },
                 }}
               >
-                Problem Title
+                Problem Title*
               </FormLabel>
               <TextField
+                id="problem-title"
                 placeholder="Enter the problem title"
                 fullWidth
                 required
                 value={problem}
-                onChange={(e) => setProblem(e.target.value)}
+                onChange={(e) => {
+                  setProblem(e.target.value);
+                  setProblemError(false);
+                }}
                 variant="outlined"
+                error={problemError}
+                inputProps={{ maxLength: 100, "aria-label": "Problem Title" }}
+                aria-describedby={problemError ? "error-message" : undefined}
+                InputLabelProps={{ required: true }}
                 sx={{
                   "& .MuiOutlinedInput-root": {
                     borderRadius: "8px",
-                    "&:hover fieldset": {
-                      borderColor: "#123499",
-                    },
-                    "&.Mui-focused fieldset": {
-                      borderColor: "#0e287d",
-                    },
+                    "&:hover fieldset": { borderColor: "#123499" },
+                    "&.Mui-focused fieldset": { borderColor: "#0e287d" },
+                    minHeight: 48,
                   },
                   "& .MuiInputBase-input": {
                     fontFamily: "'Outfit', sans-serif",
                     color: "#123499",
+                    fontSize: { xs: "0.9rem", sm: "1rem" },
                   },
                 }}
               />
             </Box>
 
-            <Box sx={{ mb: 2.5 }}>
+            <Box sx={{ mb: { xs: 2, sm: 2.5 } }}>
               <FormLabel
+                htmlFor="type-of-problem"
                 sx={{
                   fontFamily: "'Outfit', sans-serif",
                   color: "#123499",
                   fontWeight: 500,
                   mb: 0.5,
+                  fontSize: { xs: "0.85rem", sm: "0.9rem" },
                 }}
               >
-                Type of Problem
+                Type of Problem*
               </FormLabel>
               <TextField
+                id="type-of-problem"
                 select
                 fullWidth
                 required
                 value={type}
-                onChange={(e) => setType(e.target.value)}
+                onChange={(e) => {
+                  setType(e.target.value);
+                  setTypeError(false);
+                }}
                 variant="outlined"
+                error={typeError}
+                inputProps={{ "aria-label": "Type of Problem" }}
+                InputLabelProps={{ required: true }}
                 sx={{
                   "& .MuiOutlinedInput-root": {
                     borderRadius: "8px",
-                    "&:hover fieldset": {
-                      borderColor: "#123499",
-                    },
-                    "&.Mui-focused fieldset": {
-                      borderColor: "#0e287d",
-                    },
+                    "&:hover fieldset": { borderColor: "#123499" },
+                    "&.Mui-focused fieldset": { borderColor: "#0e287d" },
+                    minHeight: 48,
                   },
                   "& .MuiInputBase-input": {
                     fontFamily: "'Outfit', sans-serif",
                     color: "#123499",
+                    fontSize: { xs: "0.9rem", sm: "1rem" },
                   },
                 }}
               >
@@ -283,87 +488,82 @@ const CreateTicketForm = ({ onClose, username }) => {
               </TextField>
             </Box>
 
-            <Box sx={{ mb: 2.5 }}>
+            <Box sx={{ mb: { xs: 2, sm: 2.5 } }}>
               <FormLabel
+                htmlFor="description"
                 sx={{
                   fontFamily: "'Outfit', sans-serif",
                   color: "#123499",
                   fontWeight: 500,
                   mb: 0.5,
+                  fontSize: { xs: "0.85rem", sm: "0.9rem" },
                 }}
               >
-                Department
+                Description*
               </FormLabel>
               <TextField
-                placeholder="Enter the department"
-                fullWidth
-                required
-                value={department}
-                onChange={(e) => setDepartment(e.target.value)}
-                variant="outlined"
-                sx={{
-                  "& .MuiOutlinedInput-root": {
-                    borderRadius: "8px",
-                    "&:hover fieldset": {
-                      borderColor: "#123499",
-                    },
-                    "&.Mui-focused fieldset": {
-                      borderColor: "#0e287d",
-                    },
-                  },
-                  "& .MuiInputBase-input": {
-                    fontFamily: "'Outfit', sans-serif",
-                    color: "#123499",
-                  },
-                }}
-              />
-            </Box>
-
-            <Box sx={{ mb: 2.5 }}>
-              <FormLabel
-                sx={{
-                  fontFamily: "'Outfit', sans-serif",
-                  color: "#123499",
-                  fontWeight: 500,
-                  mb: 0.5,
-                }}
-              >
-                Description
-              </FormLabel>
-              <TextField
+                id="description"
                 placeholder="Describe the issue in detail"
                 multiline
-                rows={4}
+                rows={isSmallScreen ? 3 : 4}
                 fullWidth
                 required
                 value={description}
-                onChange={(e) => setDescription(e.target.value)}
+                onChange={(e) => {
+                  setDescription(e.target.value);
+                  setShowSuggestions(true); // re-enable suggestions if user starts typing again
+                  setDescriptionError(false);
+                }}
+                inputProps={{ maxLength: 500, "aria-label": "Description" }}
+                aria-describedby={descriptionError ? "error-message" : undefined}
                 variant="outlined"
+                error={descriptionError}
+                InputLabelProps={{ required: true }}
                 sx={{
                   "& .MuiOutlinedInput-root": {
                     borderRadius: "8px",
-                    "&:hover fieldset": {
-                      borderColor: "#123499",
-                    },
-                    "&.Mui-focused fieldset": {
-                      borderColor: "#0e287d",
-                    },
+                    "&:hover fieldset": { borderColor: "#123499" },
+                    "&.Mui-focused fieldset": { borderColor: "#0e287d" },
                   },
                   "& .MuiInputBase-input": {
                     fontFamily: "'Outfit', sans-serif",
                     color: "#123499",
+                    fontSize: { xs: "0.9rem", sm: "1rem" },
                   },
                 }}
               />
+              <Typography
+                variant="caption"
+                sx={{
+                  display: "block",
+                  textAlign: "right",
+                  color: "#123499",
+                  fontFamily: "'Outfit', sans-serif",
+                  mt: 0.5,
+                  fontSize: { xs: "0.75rem", sm: "0.8rem" },
+                }}
+              >
+                {description.length}/500
+              </Typography>
             </Box>
 
-            <Box sx={{ mb: 2.5 }}>
+            {/* --- AI Suggestions Display --- */}
+            {suggestionsLoading && (
+              <Box sx={{ my: 2, display: "flex", alignItems: "center" }}>
+                <CircularProgress size={20} sx={{ mr: 1 }} /> Checking for similar tickets...
+              </Box>
+            )}
+            {renderSuggestions()}
+
+            <Box sx={{ mb: { xs: 2, sm: 2.5 } }}>
               <FormLabel
+                htmlFor="file-upload"
                 sx={{
                   fontFamily: "'Outfit', sans-serif",
                   color: "#123499",
                   fontWeight: 500,
                   mb: 0.5,
+                  fontSize: { xs: "0.85rem", sm: "0.9rem" },
                 }}
               >
                 Attach File (PNG, JPG, WEBP, PDF)
@@ -378,19 +578,23 @@ const CreateTicketForm = ({ onClose, username }) => {
                   borderRadius: "8px",
                   textTransform: "none",
                   py: 1,
-                  px: 2,
+                  px: { xs: 1.5, sm: 2 },
+                  minHeight: 48,
                   "&:hover": {
                     borderColor: "#0e287d",
                     bgcolor: "#DDE9FF",
                   },
                 }}
+                aria-label="Choose File"
               >
                 {fileName || "Choose File"}
                 <input
+                  id="file-upload"
                   type="file"
                   accept="image/png,image/jpeg,image/webp,application/pdf"
                   hidden
                   onChange={handleFileChange}
+                  aria-describedby={error && error.includes("File") ? "error-message" : undefined}
                 />
               </Button>
               {fileName && (
@@ -399,7 +603,7 @@ const CreateTicketForm = ({ onClose, username }) => {
                     mt: 1,
                     fontFamily: "'Outfit', sans-serif",
                     color: "#123499",
-                    fontSize: "0.9rem",
+                    fontSize: { xs: "0.8rem", sm: "0.9rem" },
                   }}
                 >
                   Selected: {fileName}
@@ -416,13 +620,36 @@ const CreateTicketForm = ({ onClose, username }) => {
                   borderRadius: "8px",
                   bgcolor: "#FFEBEE",
                   color: "#D32F2F",
+                  fontSize: { xs: "0.8rem", sm: "0.875rem" },
                 }}
+                id="error-message"
               >
                 {error}
               </Alert>
             )}
 
-            <Box sx={{ display: "flex", justifyContent: "center", mt: 3 }}>
+            <Box sx={{ display: "flex", justifyContent: "center", gap: 2, mt: { xs: 2, sm: 3 } }}>
+              <Button
+                variant="outlined"
+                onClick={onClose}
+                sx={{
+                  fontFamily: "'Outfit', sans-serif",
+                  color: "#123499",
+                  borderColor: "#123499",
+                  borderRadius: "10px",
+                  fontWeight: 600,
+                  px: { xs: 2, sm: 3 },
+                  py: 1,
+                  minHeight: 48,
+                  "&:hover": {
+                    borderColor: "#0e287d",
+                    bgcolor: "#DDE9FF",
+                  },
+                }}
+                aria-label="Cancel"
+              >
+                Cancel
+              </Button>
               <Button
                 type="submit"
                 variant="contained"
@@ -432,9 +659,10 @@ const CreateTicketForm = ({ onClose, username }) => {
                   color: "#fff",
                   fontFamily: "'Outfit', sans-serif",
                   fontWeight: 600,
-                  fontSize: "1rem",
-                  px: 4,
-                  py: 1.5,
+                  fontSize: { xs: "0.9rem", sm: "1rem" },
+                  px: { xs: 3, sm: 4 },
+                  py: 1,
+                  minHeight: 48,
                   borderRadius: "10px",
                   boxShadow: "0 4px 12px rgba(18, 52, 153, 0.3)",
                   transition: "transform 0.2s, box-shadow 0.2s",
@@ -449,6 +677,8 @@ const CreateTicketForm = ({ onClose, username }) => {
                     boxShadow: "none",
                   },
                 }}
+                aria-label="Submit Ticket"
+                aria-describedby={error ? "error-message" : undefined}
               >
                 {loading ? <CircularProgress size={24} color="inherit" /> : "Submit Ticket"}
               </Button>
@@ -466,43 +696,62 @@ const CreateTicketForm = ({ onClose, username }) => {
             borderRadius: "16px",
             background: "linear-gradient(135deg, #E6F0FA 0%, #F5F5F5 100%)",
             boxShadow: "0 8px 24px rgba(18, 52, 153, 0.2)",
-            maxWidth: 400,
+            maxWidth: { xs: "90%", sm: 400 },
             textAlign: "center",
             overflow: "hidden",
+            position: "relative",
           },
         }}
+        aria-labelledby="success-dialog-title"
+        aria-describedby="success-dialog-description"
       >
         <Confetti
-          width={400}
-          height={300}
+          width={window.innerWidth}
+          height={window.innerHeight}
+          numberOfPieces={50}
           recycle={false}
-          numberOfPieces={200}
-          gravity={0.3}
-          colors={["#123499", "#0e287d", "#DDE9FF", "#FFFFFF"]}
+          run={successOpen}
+          tweenDuration={3000}
+          colors={["#123499", "#0e287d", "#DDE9FF"]}
         />
-        <DialogContent sx={{ p: 4, fontFamily: "'Outfit', sans-serif" }}>
+        <DialogTitle
+          id="success-dialog-title"
+          sx={{
+            fontFamily: "'Outfit', sans-serif",
+            color: "#123499",
+            fontWeight: 600,
+            fontSize: { xs: "1.25rem", sm: "1.5rem" },
+            pt: { xs: 2, sm: 3 },
+          }}
+        >
+          Ticket Submitted Successfully
+        </DialogTitle>
+        <DialogContent sx={{ p: { xs: 2, sm: 3 }, pb: { xs: 3, sm: 4 }, fontFamily: "'Outfit', sans-serif" }}>
           <CheckCircleIcon
-            sx={{ fontSize: 60, color: "#123499", mb: 2 }}
+            sx={{ fontSize: { xs: 50, sm: 60 }, color: "#123499", mb: 2 }}
+            role="img"
+            aria-label="Success Icon"
           />
           <Typography
-            variant="h5"
             sx={{
               fontFamily: "'Outfit', sans-serif",
               color: "#123499",
-              fontWeight: 600,
+              fontSize: { xs: "0.9rem", sm: "1.1rem" },
+              fontStyle: "italic",
               mb: 1,
             }}
           >
-            Ticket Submitted Successfully!
+            {slogan || "We're here to help you quickly!"}
           </Typography>
           <Typography
+            id="success-dialog-description"
             sx={{
               fontFamily: "'Outfit', sans-serif",
               color: "#123499",
-              fontSize: "1.1rem",
+              fontSize: { xs: "0.9rem", sm: "1.1rem" },
             }}
           >
-            Your ticket is in our system, and our team is on the case!
+            Your ticket is in our system, and we aim to respond within {responseTime || "0day"}.
           </Typography>
         </DialogContent>
       </Dialog>

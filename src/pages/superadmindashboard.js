@@ -3,7 +3,9 @@ import {
   Box, Typography, Button, Paper, Grid, List, ListItem,
   ListItemIcon, ListItemText, Divider, TextField, Collapse,
   Alert, Table, TableContainer, TableBody, TableCell,
-  TableHead, TableRow, Card, CardContent, Link
+  TableHead, TableRow, Card, CardContent, Link, Stack,
+  Avatar, IconButton, InputAdornment, Switch, FormControlLabel,MenuItem ,
+  Drawer, IconButton as MuiIconButton, Dialog, DialogTitle, DialogContent, DialogActions,
 } from '@mui/material';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import ListIcon from '@mui/icons-material/List';
@@ -12,13 +14,26 @@ import AddBusinessIcon from '@mui/icons-material/AddBusiness';
 import InstagramIcon from '@mui/icons-material/Instagram';
 import TwitterIcon from '@mui/icons-material/Twitter';
 import GitHubIcon from '@mui/icons-material/GitHub';
-import { doc, setDoc, getDoc, collection, getDocs } from 'firebase/firestore';
+import GroupIcon from '@mui/icons-material/Group';
+import SupervisorAccountIcon from '@mui/icons-material/SupervisorAccount';
+import PhotoCamera from '@mui/icons-material/PhotoCamera';
+import LogoutIcon from '@mui/icons-material/Logout';
+import Visibility from '@mui/icons-material/Visibility';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import VisibilityOff from '@mui/icons-material/VisibilityOff';
+import MenuIcon from '@mui/icons-material/Menu';
+import { doc, setDoc, getDoc, collection, getDocs, updateDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../firebase';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
+import Select from 'react-select';
+import { Country, State, City } from 'country-state-city';
 
-const SIDEBAR_WIDTH = 240;
+const SIDEBAR_WIDTH = 260;
+const CLOUDINARY_URL = "https://api.cloudinary.com/v1_1/diogwsroa/upload";
+const UPLOAD_PRESET = "helpmate_upload";
 
 const sidebarItems = [
   { text: 'Dashboard', icon: <DashboardIcon /> },
@@ -28,8 +43,7 @@ const sidebarItems = [
 ];
 
 // --- CHART COMPONENT ---
-const OrganizationFieldBarChart = ({ organizations }) => {
-  // Group organizations by field
+const OrganizationFieldBarChart = ({ organizations, themeMode }) => {
   const fieldCount = {};
   organizations.forEach((org) => {
     const field = org.field || 'Unknown';
@@ -42,215 +56,398 @@ const OrganizationFieldBarChart = ({ organizations }) => {
 
   if (data.length === 0) {
     return (
-      <Paper sx={{ p: 3, mb: 4 }}>
+      <Paper sx={{ p: { xs: 2, sm: 3 }, mb: 4, borderRadius: 3, boxShadow: 2, bgcolor: themeMode === 'dark' ? '#222' : '#fff' }}>
         <Typography>No data to display.</Typography>
       </Paper>
     );
   }
 
   return (
-    <Paper sx={{ p: 3, mb: 4 }}>
-      <Typography variant="h6" sx={{ mb: 2, color: '#001F54' }}>
+    <Paper sx={{
+      p: { xs: 2, sm: 3 }, mb: 4, borderRadius: 3, boxShadow: 2,
+      width: { xs: '100%', sm: '90%', md: '80%' }, maxWidth: 600, mx: 'auto',
+      bgcolor: themeMode === 'dark' ? '#222' : '#fff'
+    }}>
+      <Typography variant="h6" sx={{ mb: 2, color: '#001F54', fontWeight: 600, fontSize: { xs: '1rem', sm: '1.25rem' } }}>
         Organizations by Field
       </Typography>
-      <ResponsiveContainer width="100%" height={350}>
-        <BarChart data={data}>
-          <CartesianGrid strokeDasharray="3 3" />
-          <XAxis dataKey="field" />
-          <YAxis allowDecimals={false} />
+      <ResponsiveContainer width="100%" height={Math.max(200, 50 + data.length * 40)}>
+        <BarChart data={data} layout="vertical" margin={{ left: 10, right: 10, top: 10, bottom: 10 }}>
+          <CartesianGrid strokeDasharray="2 2" />
+          <XAxis type="number" allowDecimals={false} />
+          <YAxis type="category" dataKey="field" width={100} fontSize={12} />
           <Tooltip />
-          <Bar dataKey="count" fill="#2196f3" />
+          <Bar dataKey="count" fill="#2196f3" barSize={30} radius={[8, 8, 8, 8]} />
         </BarChart>
       </ResponsiveContainer>
     </Paper>
   );
 };
 
+// --- STATS CARDS ---
+const StatCard = ({ icon, label, value, color, themeMode }) => (
+  <Paper
+    sx={{
+      p: { xs: 2, sm: 3 },
+      minWidth: { xs: 160, sm: 200 },
+      background: themeMode === 'dark'
+        ? 'linear-gradient(135deg, #263238 80%, #111)'
+        : 'linear-gradient(135deg, #e3f2fd 80%, #ffffff)',
+      borderRadius: 3,
+      boxShadow: 2,
+      display: 'flex',
+      alignItems: 'center',
+      gap: 2,
+    }}
+  >
+    <Box sx={{ color: color, fontSize: { xs: 32, sm: 40 } }}>{icon}</Box>
+    <Box>
+      <Typography variant="h5" sx={{ fontWeight: 700, color: themeMode === 'dark' ? '#fff' : '#111', fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
+        {value}
+      </Typography>
+      <Typography variant="subtitle2" sx={{ color: themeMode === 'dark' ? '#bbb' : '#555', fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
+        {label}
+      </Typography>
+    </Box>
+  </Paper>
+);
+
+
 // --- ADD ORGANIZATION ---
 const AddOrganizationContent = ({
   orgForm, handleFormChange, handleCreateOrgAndAdmin,
-  showOrgAdminForm, setShowOrgAdminForm, errorMsg, successMsg
+  showOrgAdminForm, setShowOrgAdminForm, errorMsg, openDialog, setOpenDialog,
+  accessRequests, setAccessRequests, handleApproveRequest
 }) => {
   const navyText = '#001F54';
+  const [selectedRequest, setSelectedRequest] = useState(null);
+  const [approveDialogOpen, setApproveDialogOpen] = useState(false);
+  const [approveForm, setApproveForm] = useState({ adminUsername: '', adminPassword: '' });
+  const [approveError, setApproveError] = useState('');
+  const [selectedCountry, setSelectedCountry] = useState(null);
+  const [selectedState, setSelectedState] = useState(null);
+  const [selectedCity, setSelectedCity] = useState(null);
+  const [localOrgForm, setLocalOrgForm] = useState({
+    address: '',
+    city: '',
+    state: '',
+    country: '',
+  });
+
+  const categories = [
+    'Technology',
+    'Healthcare',
+    'Education',
+    'Finance',
+    'Retail',
+    'Manufacturing',
+    'Non-Profit',
+    'Other',
+  ];
+
+  const countryOptions = Country.getAllCountries().map((c) => ({
+    label: c.name,
+    value: c.isoCode,
+  }));
+
+  const stateOptions = selectedCountry
+    ? State.getStatesOfCountry(selectedCountry.value).map((s) => ({
+      label: s.name,
+      value: s.isoCode,
+    }))
+    : [];
+
+  const cityOptions =
+    selectedCountry && selectedState
+      ? City.getCitiesOfState(selectedCountry.value, selectedState.value).map((city) => ({
+        label: city.name,
+        value: city.name,
+      }))
+      : [];
+
+  const handleRequestClick = (request) => {
+    setSelectedRequest(request);
+  };
+
+  const handleApproveDialogClose = () => {
+    setSelectedRequest(null);
+    setApproveDialogOpen(false);
+    setApproveForm({ adminUsername: '', adminPassword: '' });
+    setApproveError('');
+  };
+
+  const handleApproveFormChange = (e) => {
+    setApproveForm({ ...approveForm, [e.target.name]: e.target.value });
+    setApproveError('');
+  };
+
+  const handleApproveSubmit = async () => {
+    if (!approveForm.adminUsername || !approveForm.adminPassword) {
+      setApproveError('Please provide both username and password.');
+      return;
+    }
+
+    const adminRef = doc(db, 'Users', approveForm.adminUsername.toLowerCase());
+    const adminSnap = await getDoc(adminRef);
+    if (adminSnap.exists()) {
+      setApproveError('Username already exists.');
+      return;
+    }
+
+    try {
+      await handleApproveRequest(selectedRequest, approveForm.adminUsername, approveForm.adminPassword);
+      handleApproveDialogClose();
+    } catch (err) {
+      setApproveError('Error approving request: ' + err.message);
+    }
+  };
 
   return (
     <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h6" sx={{ color: navyText }}>Add Organization</Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, px: { xs: 1, sm: 0 } }}>
+        <Typography variant="h6" sx={{ color: navyText, fontSize: { xs: '1rem', sm: '1.25rem' } }}>
+          Add Organization
+        </Typography>
         <Button
           variant="contained"
           startIcon={<AddBusinessIcon />}
           color="primary"
           onClick={() => setShowOrgAdminForm(show => !show)}
-          sx={{ borderRadius: 2, textTransform: 'none', px: 3, py: 1.5 }}
+          sx={{ borderRadius: 2, textTransform: 'none', px: { xs: 2, sm: 3 }, py: 1, minHeight: 48 }}
+          aria-label={showOrgAdminForm ? 'Hide Form' : 'Create Organization'}
         >
           {showOrgAdminForm ? 'Hide Form' : 'Create Organization'}
         </Button>
       </Box>
-
+      <Typography variant="h6" sx={{ mb: 2, color: navyText, fontSize: { xs: '1rem', sm: '1.25rem' } }}>
+        Pending Access Requests
+      </Typography>
+      {accessRequests.length === 0 ? (
+        <Typography variant="body2" sx={{ color: navyText, fontSize: { xs: '0.85rem', sm: '1rem' } }}>
+          No pending access requests.
+        </Typography>
+      ) : (
+        <Box sx={{ mb: 4 }}>
+          {accessRequests.map((request) => (
+            <Card
+              key={request.requestId}
+              sx={{ mb: 2, p: 2, borderRadius: 3, boxShadow: 2, cursor: 'pointer' }}
+              onClick={() => handleRequestClick(request)}
+            >
+              <Typography variant="subtitle1" sx={{ fontWeight: 600, color: navyText }}>
+                {request.orgName}
+              </Typography>
+              <Typography variant="body2" sx={{ color: '#555' }}>
+                Admin: {request.adminName}
+              </Typography>
+              <Typography variant="body2" sx={{ color: '#555' }}>
+                Email: {request.orgEmail}
+              </Typography>
+              <Typography variant="body2" sx={{ color: '#555' }}>
+                Created: {request.createdAt?.toDate()?.toLocaleDateString() || 'N/A'}
+              </Typography>
+            </Card>
+          ))}
+        </Box>
+      )}
       <Collapse in={showOrgAdminForm}>
         <Paper sx={{
-          p: 4, mb: 4, background: 'linear-gradient(135deg, #e3f2fd, #ffffff)',
-          borderRadius: 3, boxShadow: 3, maxWidth: 900, mx: 'auto',
+          p: { xs: 2, sm: 3, md: 4 }, mb: 4,
+          background: 'linear-gradient(135deg, #e3f2fd, #ffffff)',
+          borderRadius: 3, boxShadow: 3, maxWidth: { xs: '100%', sm: 900 }, mx: 'auto',
         }}>
-          <Typography variant="h5" sx={{ mb: 3, color: navyText, fontWeight: 600 }}>
+          <Typography variant="h5" sx={{ mb: 3, color: navyText, fontWeight: 600, fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
             Add Organization
           </Typography>
-          {errorMsg && <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}>{errorMsg}</Alert>}
-          {successMsg && (
-            <Alert severity="info" sx={{ mb: 2, backgroundColor: '#e3f2fd', color: '#0d47a1', borderRadius: 2 }}>
-              {successMsg}
-            </Alert>
-          )}
-
-          {/* Basic Information */}
-          <Typography variant="subtitle1" sx={{ mb: 2, color: navyText, fontWeight: 600 }}>
+          {errorMsg && <Alert severity="error" sx={{ mb: 2, borderRadius: 2, fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>{errorMsg}</Alert>}
+          <Typography variant="subtitle1" sx={{ mb: 2, color: navyText, fontWeight: 600, fontSize: { xs: '0.9rem', sm: '1rem' } }}>
             Basic Information
           </Typography>
-          <Grid container spacing={3}>
+          <Grid container spacing={2}>
             <Grid item xs={12} sm={6}>
               <TextField
                 name="orgName"
                 label="Organization Name"
-                fullWidth
-                sx={{ mb: 2 }}
+                fullWidth sx={{ mb: 2 }}
                 value={orgForm.orgName}
                 onChange={handleFormChange}
-                InputProps={{ style: { backgroundColor: '#f5faff' } }}
+                InputProps={{ style: { backgroundColor: '#f5faff', minHeight: 48 }, 'aria-label': 'Organization Name' }}
+                InputLabelProps={{ required: true }}
               />
               <TextField
                 name="email"
                 label="Email"
-                fullWidth
-                sx={{ mb: 2 }}
+                fullWidth sx={{ mb: 2 }}
                 value={orgForm.email}
                 onChange={handleFormChange}
-                InputProps={{ style: { backgroundColor: '#f5faff' } }}
+                InputProps={{ style: { backgroundColor: '#f5faff', minHeight: 48 }, 'aria-label': 'Email' }}
+                InputLabelProps={{ required: true }}
               />
             </Grid>
             <Grid item xs={12} sm={6}>
               <TextField
-                name="field"
-                label="Field"
+                select
+                name="category"
+                label="Category"
                 fullWidth
                 sx={{ mb: 2 }}
-                value={orgForm.field}
+                value={orgForm.category}
                 onChange={handleFormChange}
-                InputProps={{ style: { backgroundColor: '#f5faff' } }}
-              />
+                InputProps={{
+                  style: { backgroundColor: '#f5faff', minHeight: 48 },
+                  'aria-label': 'Category',
+                }}
+                InputLabelProps={{ required: true }}
+              >
+                {categories.map((cat) => (
+                  <MenuItem key={cat} value={cat}>
+                    {cat}
+                  </MenuItem>
+                ))}
+              </TextField>
               <TextField
                 name="phoneNumber"
                 label="Phone Number"
-                fullWidth
-                sx={{ mb: 2 }}
+                fullWidth sx={{ mb: 2 }}
                 value={orgForm.phoneNumber}
                 onChange={handleFormChange}
-                InputProps={{ style: { backgroundColor: '#f5faff' } }}
+                InputProps={{ style: { backgroundColor: '#f5faff', minHeight: 48 }, 'aria-label': 'Phone Number' }}
+                InputLabelProps={{ required: true }}
               />
             </Grid>
             <Grid item xs={12}>
               <TextField
                 name="website"
                 label="Website"
-                fullWidth
-                sx={{ mb: 2 }}
+                fullWidth sx={{ mb: 2 }}
                 value={orgForm.website}
                 onChange={handleFormChange}
-                InputProps={{ style: { backgroundColor: '#f5faff' } }}
+                InputProps={{ style: { backgroundColor: '#f5faff', minHeight: 48 }, 'aria-label': 'Website' }}
               />
             </Grid>
           </Grid>
-
-          {/* Address Details */}
-          <Typography variant="subtitle1" sx={{ mt: 3, mb: 2, color: navyText, fontWeight: 600 }}>
+          <Typography variant="subtitle1" sx={{ mt: 3, mb: 2, color: navyText, fontWeight: 600, fontSize: { xs: '0.9rem', sm: '1rem' } }}>
             Address Details
           </Typography>
-          <Grid container spacing={3}>
+          <Grid container spacing={2} sx={{ position: 'relative', zIndex: 0 }} >
             <Grid item xs={12} sm={6}>
               <TextField
                 name="address"
                 label="Address"
                 fullWidth
                 sx={{ mb: 2 }}
-                value={orgForm.address}
-                onChange={handleFormChange}
-                InputProps={{ style: { backgroundColor: '#f5faff' } }}
+                value={localOrgForm.address}
+                onChange={(e) => setLocalOrgForm({ ...localOrgForm, address: e.target.value })}
+                InputProps={{
+                  style: { backgroundColor: '#f5faff', minHeight: 48 },
+                  'aria-label': 'Address',
+                }}
+                InputLabelProps={{ required: true }}
               />
-              <TextField
-                name="city"
-                label="City"
-                fullWidth
-                sx={{ mb: 2 }}
-                value={orgForm.city}
-                onChange={handleFormChange}
-                InputProps={{ style: { backgroundColor: '#f5faff' } }}
+              <label style={{ fontSize: '0.875rem', fontWeight: 500, marginBottom: 4 }}>City</label>
+              <Select
+                options={cityOptions}
+                value={selectedCity}
+                onChange={(selected) => {
+                  setSelectedCity(selected);
+                  setLocalOrgForm((prev) => ({ ...prev, city: selected ? selected.label : '' }));
+                }}
+                isDisabled={!selectedState}
+                placeholder="Select City"
+                styles={{
+                  control: (base) => ({
+                    ...base,
+                    backgroundColor: '#f5faff',
+                    minHeight: 48,
+                  }),
+                }}
               />
             </Grid>
             <Grid item xs={12} sm={6}>
-              <TextField
-                name="state"
-                label="State"
-                fullWidth
-                sx={{ mb: 2 }}
-                value={orgForm.state}
-                onChange={handleFormChange}
-                InputProps={{ style: { backgroundColor: '#f5faff' } }}
+              <label style={{ fontSize: '0.875rem', fontWeight: 500, marginBottom: 4 }}>State</label>
+              <Select
+                options={stateOptions}
+                value={selectedState}
+                onChange={(selected) => {
+                  setSelectedState(selected);
+                  setSelectedCity(null);
+                  setLocalOrgForm((prev) => ({ ...prev, state: selected ? selected.label : '', city: '' }));
+                }}
+                isDisabled={!selectedCountry}
+                placeholder="Select State"
+                styles={{
+                  control: (base) => ({
+                    ...base,
+                    backgroundColor: '#f5faff',
+                    minHeight: 48,
+                  }),
+                }}
               />
-              <TextField
-                name="country"
-                label="Country"
-                fullWidth
-                sx={{ mb: 2 }}
-                value={orgForm.country}
-                onChange={handleFormChange}
-                InputProps={{ style: { backgroundColor: '#f5faff' } }}
+              <label style={{ fontSize: '0.875rem', fontWeight: 500, marginTop: 16, display: 'block' }}>
+                Country
+              </label>
+              <Select
+                options={countryOptions}
+                value={selectedCountry}
+                onChange={(selected) => {
+                  setSelectedCountry(selected);
+                  setSelectedState(null);
+                  setSelectedCity(null);
+                  setLocalOrgForm((prev) => ({ ...prev, country: selected ? selected.label : '', state: '', city: '' }));
+                }}
+                placeholder="Select Country"
+                styles={{
+                  control: (base) => ({
+                    ...base,
+                    backgroundColor: '#f5faff',
+                    minHeight: 48,
+                  }),
+                }}
               />
             </Grid>
           </Grid>
-
-          {/* Admin Details */}
-          <Typography variant="subtitle1" sx={{ mt: 3, mb: 2, color: navyText, fontWeight: 600 }}>
+          <Typography variant="subtitle1" sx={{ mt: 3, mb: 2, color: navyText, fontWeight: 600, fontSize: { xs: '0.9rem', sm: '1rem' } }}>
             Admin Details
           </Typography>
-          <Grid container spacing={3}>
+          <Grid container spacing={2}>
             <Grid item xs={12} sm={6}>
               <TextField
                 name="adminName"
                 label="Admin Full Name"
-                fullWidth
-                sx={{ mb: 2 }}
+                fullWidth sx={{ mb: 2 }}
                 value={orgForm.adminName}
                 onChange={handleFormChange}
-                InputProps={{ style: { backgroundColor: '#f5faff' } }}
+                InputProps={{ style: { backgroundColor: '#f5faff', minHeight: 48 }, 'aria-label': 'Admin Full Name' }}
+                InputLabelProps={{ required: true }}
               />
               <TextField
                 name="adminEmail"
                 label="Admin Email"
-                fullWidth
-                sx={{ mb: 2 }}
+                fullWidth sx={{ mb: 2 }}
                 value={orgForm.adminEmail}
                 onChange={handleFormChange}
-                InputProps={{ style: { backgroundColor: '#f5faff' } }}
+                InputProps={{ style: { backgroundColor: '#f5faff', minHeight: 48 }, 'aria-label': 'Admin Email' }}
+                InputLabelProps={{ required: true }}
               />
             </Grid>
             <Grid item xs={12} sm={6}>
               <TextField
                 name="adminPhoneNumber"
                 label="Admin Phone Number"
-                fullWidth
-                sx={{ mb: 2 }}
+                fullWidth sx={{ mb: 2 }}
                 value={orgForm.adminPhoneNumber}
                 onChange={handleFormChange}
-                InputProps={{ style: { backgroundColor: '#f5faff' } }}
+                InputProps={{ style: { backgroundColor: '#f5faff', minHeight: 48 }, 'aria-label': 'Admin Phone Number' }}
+                InputLabelProps={{ required: true }}
               />
               <TextField
                 name="adminUsername"
                 label="Admin Username"
-                fullWidth
-                sx={{ mb: 2 }}
+                fullWidth sx={{ mb: 2 }}
                 value={orgForm.adminUsername}
                 onChange={handleFormChange}
-                InputProps={{ style: { backgroundColor: '#f5faff' } }}
+                InputProps={{ style: { backgroundColor: '#f5faff', minHeight: 48 }, 'aria-label': 'Admin Username' }}
+                InputLabelProps={{ required: true }}
               />
             </Grid>
             <Grid item xs={12}>
@@ -258,11 +455,11 @@ const AddOrganizationContent = ({
                 name="adminPassword"
                 label="Admin Password"
                 type="password"
-                fullWidth
-                sx={{ mb: 2 }}
+                fullWidth sx={{ mb: 2 }}
                 value={orgForm.adminPassword}
                 onChange={handleFormChange}
-                InputProps={{ style: { backgroundColor: '#f5faff' } }}
+                InputProps={{ style: { backgroundColor: '#f5faff', minHeight: 48 }, 'aria-label': 'Admin Password' }}
+                InputLabelProps={{ required: true }}
               />
             </Grid>
           </Grid>
@@ -271,14 +468,135 @@ const AddOrganizationContent = ({
               variant="contained"
               color="primary"
               size="large"
-              sx={{ px: 5, py: 1.5, borderRadius: 2, textTransform: 'none' }}
-              onClick={handleCreateOrgAndAdmin}
+              sx={{ px: { xs: 3, sm: 5 }, py: 1, minHeight: 48, borderRadius: 2, textTransform: 'none' }}
+              onClick={() => handleCreateOrgAndAdmin({ ...orgForm, ...localOrgForm })}
+              aria-label="Create Organization"
             >
               Create Organization
             </Button>
           </Box>
         </Paper>
       </Collapse>
+      <Dialog
+        open={openDialog}
+        onClose={() => setOpenDialog(false)}
+        aria-labelledby="success-dialog-title"
+        sx={{
+          '& .MuiDialog-paper': {
+            borderRadius: 2,
+            padding: 2,
+            minWidth: { xs: 280, sm: 400 },
+          },
+        }}
+      >
+        <DialogTitle id="success-dialog-title" sx={{ color: '#001F54', fontWeight: 600 }}>
+          Success
+        </DialogTitle>
+        <DialogContent>
+          <Typography sx={{ color: '#001F54', fontSize: { xs: '0.9rem', sm: '1rem' } }}>
+            Organization created successfully!
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setOpenDialog(false)}
+            variant="contained"
+            color="primary"
+            sx={{ borderRadius: 2, textTransform: 'none' }}
+            aria-label="Close"
+          >
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog
+        open={!!selectedRequest}
+        onClose={handleApproveDialogClose}
+        aria-labelledby="request-details-dialog-title"
+        sx={{
+          '& .MuiDialog-paper': {
+            borderRadius: 2,
+            padding: 2,
+            minWidth: { xs: '90%', sm: 500 },
+          },
+        }}
+      >
+        <DialogTitle id="request-details-dialog-title" sx={{ color: '#001F54', fontWeight: 600 }}>
+          Access Request Details
+        </DialogTitle>
+        <DialogContent>
+          {selectedRequest && (
+            <>
+              <Typography variant="subtitle1" sx={{ mb: 2, color: navyText, fontWeight: 600, fontSize: { xs: '0.9rem', sm: '1rem' } }}>
+                Organization Details
+              </Typography>
+              <Typography sx={{ fontSize: { xs: '0.85rem', sm: '1rem' } }}><strong>Name:</strong> {selectedRequest.orgName}</Typography>
+              <Typography sx={{ fontSize: { xs: '0.85rem', sm: '1rem' } }}><strong>Category:</strong> {selectedRequest.category}</Typography>
+              <Typography sx={{ fontSize: { xs: '0.85rem', sm: '1rem' } }}><strong>Email:</strong> {selectedRequest.orgEmail}</Typography>
+              <Typography sx={{ fontSize: { xs: '0.85rem', sm: '1rem' } }}><strong>Phone:</strong> {selectedRequest.orgPhone}</Typography>
+              <Typography sx={{ fontSize: { xs: '0.85rem', sm: '1rem' } }}><strong>Website:</strong> {selectedRequest.website || 'N/A'}</Typography>
+              <Typography variant="subtitle1" sx={{ mt: 2, mb: 2, color: navyText, fontWeight: 600, fontSize: { xs: '0.9rem', sm: '1rem' } }}>
+                Address
+              </Typography>
+              <Typography sx={{ fontSize: { xs: '0.85rem', sm: '1rem' } }}><strong>Street:</strong> {selectedRequest.address.street}</Typography>
+              <Typography sx={{ fontSize: { xs: '0.85rem', sm: '1rem' } }}><strong>City:</strong> {selectedRequest.address.city}</Typography>
+              <Typography sx={{ fontSize: { xs: '0.85rem', sm: '1rem' } }}><strong>State:</strong> {selectedRequest.address.state}</Typography>
+              <Typography sx={{ fontSize: { xs: '0.85rem', sm: '1rem' } }}><strong>Postal Code:</strong> {selectedRequest.address.postalCode}</Typography>
+              <Typography sx={{ fontSize: { xs: '0.85rem', sm: '1rem' } }}><strong>Country:</strong> {selectedRequest.address.country}</Typography>
+              <Typography variant="subtitle1" sx={{ mt: 2, mb: 2, color: navyText, fontWeight: 600, fontSize: { xs: '0.9rem', sm: '1rem' } }}>
+                Admin Details
+              </Typography>
+              <Typography sx={{ fontSize: { xs: '0.85rem', sm: '1rem' } }}><strong>Name:</strong> {selectedRequest.adminName}</Typography>
+              <Typography sx={{ fontSize: { xs: '0.85rem', sm: '1rem' } }}><strong>Email:</strong> {selectedRequest.adminEmail}</Typography>
+              <Typography sx={{ fontSize: { xs: '0.85rem', sm: '1rem' } }}><strong>Phone:</strong> {selectedRequest.adminPhone}</Typography>
+              <Typography sx={{ fontSize: { xs: '0.85rem', sm: '1rem' } }}><strong>Created At:</strong> {selectedRequest.createdAt?.toDate()?.toLocaleDateString() || 'N/A'}</Typography>
+            </>
+          )}
+          <Box sx={{ mt: 3 }}>
+            <Typography variant="subtitle1" sx={{ mb: 2, color: navyText, fontWeight: 600, fontSize: { xs: '0.9rem', sm: '1rem' } }}>
+              Approve Request
+            </Typography>
+            <TextField
+              name="adminUsername"
+              label="Admin Username"
+              fullWidth
+              sx={{ mb: 2 }}
+              value={approveForm.adminUsername}
+              onChange={handleApproveFormChange}
+              InputProps={{ style: { backgroundColor: '#f5faff', minHeight: 48 }, 'aria-label': 'Admin Username' }}
+            />
+            <TextField
+              name="adminPassword"
+              label="Admin Password"
+              type="password"
+              fullWidth
+              sx={{ mb: 2 }}
+              value={approveForm.adminPassword}
+              onChange={handleApproveFormChange}
+              InputProps={{ style: { backgroundColor: '#f5faff', minHeight: 48 }, 'aria-label': 'Admin Password' }}
+            />
+            {approveError && <Alert severity="error" sx={{ mb: 2, fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>{approveError}</Alert>}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={handleApproveDialogClose}
+            sx={{ color: '#001F54', textTransform: 'none' }}
+            aria-label="Cancel"
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleApproveSubmit}
+            variant="contained"
+            color="primary"
+            sx={{ borderRadius: 2, textTransform: 'none' }}
+            aria-label="Add Organization"
+          >
+            Add Organization
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
@@ -286,66 +604,61 @@ const AddOrganizationContent = ({
 // --- ORGANIZATION LIST ---
 const OrganizationListContent = ({ organizations, selectedOrg, setSelectedOrg }) => {
   const navyText = '#001F54';
-
   return (
-    <Box sx={{ width: '100%', maxWidth: { xs: '100%', md: 'calc(100vw - 280px)' }, mx: 'auto' }}>
-      <Typography variant="h6" sx={{ mb: 2, color: navyText }}>Organization List</Typography>
+    <Box sx={{ width: { xs: '100%', sm: '95%' }, maxWidth: { xs: '100%', md: 900 }, mx: 'auto' }}>
+      <Typography variant="h6" sx={{ mb: 2, color: navyText, fontSize: { xs: '1rem', sm: '1.25rem' } }}>
+        Organization List
+      </Typography>
       {selectedOrg ? (
         <Card sx={{
-          maxWidth: 900,
-          mx: 'auto',
-          p: 3,
-          borderRadius: 3,
-          boxShadow: 3,
-          background: 'linear-gradient(135deg, #e3f2fd, #ffffff)',
+          maxWidth: { xs: '100%', sm: 800 }, mx: 'auto', p: { xs: 2, sm: 3 },
+          borderRadius: 3, boxShadow: 3, background: 'linear-gradient(135deg, #e3f2fd, #ffffff)',
         }}>
           <CardContent>
-            <Typography variant="h5" sx={{ mb: 3, color: navyText, fontWeight: 600 }}>
+            <Typography variant="h5" sx={{ mb: 3, color: navyText, fontWeight: 600, fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
               {selectedOrg.orgName}
             </Typography>
-            <Typography variant="subtitle1" sx={{ mb: 2, color: navyText, fontWeight: 600 }}>
+            <Typography variant="subtitle.horizontal-line1" sx={{ mb: 2, color: navyText, fontWeight: 600, fontSize: { xs: '0.9rem', sm: '1rem' } }}>
               Basic Information
             </Typography>
             <Grid container spacing={2}>
               <Grid item xs={12} sm={6}>
-                <Typography><strong>Name:</strong> {selectedOrg.orgName}</Typography>
-                <Typography><strong>Email:</strong> {selectedOrg.email}</Typography>
-                <Typography><strong>Field:</strong> {selectedOrg.field}</Typography>
+                <Typography sx={{ fontSize: { xs: '0.85rem', sm: '1rem' } }}><strong>Name:</strong> {selectedOrg.orgName}</Typography>
+                <Typography sx={{ fontSize: { xs: '0.85rem', sm: '1rem' } }}><strong>Email:</strong> {selectedOrg.email}</Typography>
+                <Typography sx={{ fontSize: { xs: '0.85rem', sm: '1rem' } }}><strong>Field:</strong> {selectedOrg.field}</Typography>
               </Grid>
               <Grid item xs={12} sm={6}>
-                <Typography><strong>Phone:</strong> {selectedOrg.phoneNumber}</Typography>
-                <Typography><strong>Website:</strong> {selectedOrg.website}</Typography>
+                <Typography sx={{ fontSize: { xs: '0.85rem', sm: '1rem' } }}><strong>Phone:</strong> {selectedOrg.phoneNumber}</Typography>
+                <Typography sx={{ fontSize: { xs: '0.85rem', sm: '1rem' } }}><strong>Website:</strong> {selectedOrg.website}</Typography>
               </Grid>
             </Grid>
-
-            <Typography variant="subtitle1" sx={{ mt: 3, mb: 2, color: navyText, fontWeight: 600 }}>
+            <Typography variant="subtitle1" sx={{ mt: 3, mb: 2, color: navyText, fontWeight: 600, fontSize: { xs: '0.9rem', sm: '1rem' } }}>
               Address Details
             </Typography>
             <Grid container spacing={2}>
               <Grid item xs={12} sm={6}>
-                <Typography><strong>Address:</strong> {selectedOrg.address}</Typography>
-                <Typography><strong>City:</strong> {selectedOrg.city}</Typography>
+                <Typography sx={{ fontSize: { xs: '0.85rem', sm: '1rem' } }}><strong>Address:</strong> {selectedOrg.address}</Typography>
+                <Typography sx={{ fontSize: { xs: '0.85rem', sm: '1rem' } }}><strong>City:</strong> {selectedOrg.city}</Typography>
               </Grid>
               <Grid item xs={12} sm={6}>
-                <Typography><strong>State:</strong> {selectedOrg.state}</Typography>
-                <Typography><strong>Country:</strong> {selectedOrg.country}</Typography>
+                <Typography sx={{ fontSize: { xs: '0.85rem', sm: '1rem' } }}><strong>State:</strong> {selectedOrg.state}</Typography>
+                <Typography sx={{ fontSize: { xs: '0.85rem', sm: '1rem' } }}><strong>Country:</strong> {selectedOrg.country}</Typography>
               </Grid>
             </Grid>
-
-            <Typography variant="subtitle1" sx={{ mt: 3, mb: 2, color: navyText, fontWeight: 600 }}>
+            <Typography variant="subtitle1" sx={{ mt: 3, mb: 2, color: navyText, fontWeight: 600, fontSize: { xs: '0.9rem', sm: '1rem' } }}>
               Admin Details
             </Typography>
             <Grid container spacing={2}>
               <Grid item xs={12} sm={6}>
-                <Typography><strong>Name:</strong> {selectedOrg.adminName}</Typography>
-                <Typography><strong>Email:</strong> {selectedOrg.adminEmail}</Typography>
+                <Typography sx={{ fontSize: { xs: '0.85rem', sm: '1rem' } }}><strong>Name:</strong> {selectedOrg.adminName}</Typography>
+                <Typography sx={{ fontSize: { xs: '0.85rem', sm: '1rem' } }}><strong>Email:</strong> {selectedOrg.adminEmail}</Typography>
               </Grid>
               <Grid item xs={12} sm={6}>
-                <Typography><strong>Phone:</strong> {selectedOrg.adminPhoneNumber}</Typography>
-                <Typography><strong>Username:</strong> {selectedOrg.adminUsername}</Typography>
+                <Typography sx={{ fontSize: { xs: '0.85rem', sm: '1rem' } }}><strong>Phone:</strong> {selectedOrg.adminPhoneNumber}</Typography>
+                <Typography sx={{ fontSize: { xs: '0.85rem', sm: '1rem' } }}><strong>Username:</strong> {selectedOrg.adminUsername}</Typography>
               </Grid>
             </Grid>
-            <Typography sx={{ mt: 2 }}>
+            <Typography sx={{ mt: 2, fontSize: { xs: '0.85rem', sm: '1rem' } }}>
               <strong>Created At:</strong>{' '}
               {selectedOrg.createdAt?.toDate
                 ? selectedOrg.createdAt.toDate().toLocaleDateString()
@@ -356,8 +669,9 @@ const OrganizationListContent = ({ organizations, selectedOrg, setSelectedOrg })
             <Button
               variant="outlined"
               color="primary"
-              sx={{ mt: 3, borderRadius: 2, textTransform: 'none' }}
+              sx={{ mt: 3, borderRadius: 2, textTransform: 'none', minHeight: 48, px: { xs: 2, sm: 3 } }}
               onClick={() => setSelectedOrg(null)}
+              aria-label="Back to List"
             >
               Back to List
             </Button>
@@ -366,46 +680,74 @@ const OrganizationListContent = ({ organizations, selectedOrg, setSelectedOrg })
       ) : (
         <>
           {organizations.length === 0 ? (
-            <Typography variant="body2" sx={{ color: navyText }}>No organizations found.</Typography>
+            <Typography variant="body2" sx={{ color: navyText, fontSize: { xs: '0.85rem', sm: '1rem' } }}>
+              No organizations found.
+            </Typography>
           ) : (
-            <Box sx={{ width: '100%', overflowX: 'auto', mt: 2 }}>
-              <TableContainer component={Paper} elevation={3} sx={{ minWidth: 800 }}>
-                <Table>
-                  <TableHead sx={{ backgroundColor: '#e3f2fd' }}>
-                    <TableRow>
-                      <TableCell><strong>Organization</strong></TableCell>
-                      <TableCell><strong>Email</strong></TableCell>
-                      <TableCell><strong>Phone</strong></TableCell>
-                      <TableCell><strong>Address</strong></TableCell>
-                      <TableCell><strong>Admin</strong></TableCell>
-                      <TableCell><strong>Created At</strong></TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {organizations.map((org) => (
-                      <TableRow
-                        key={org.orgName}
-                        hover
-                        sx={{ cursor: 'pointer' }}
-                        onClick={() => setSelectedOrg(org)}
-                      >
-                        <TableCell>{org.orgName}</TableCell>
-                        <TableCell>{org.email}</TableCell>
-                        <TableCell>{org.phoneNumber}</TableCell>
-                        <TableCell>{`${org.address}, ${org.city}, ${org.state}, ${org.country}`}</TableCell>
-                        <TableCell>{org.adminName}</TableCell>
-                        <TableCell>
-                          {org.createdAt?.toDate
-                            ? org.createdAt.toDate().toLocaleDateString()
-                            : org.createdAt instanceof Date
-                              ? org.createdAt.toLocaleDateString()
-                              : 'N/A'}
-                        </TableCell>
+            <Box sx={{ width: '100%', mt: 2 }}>
+              <Box sx={{ display: { xs: 'block', md: 'none' } }}>
+                {organizations.map((org) => (
+                  <Card
+                    key={org.orgName}
+                    sx={{ mb: 2, p: 2, borderRadius: 3, boxShadow: 2, cursor: 'pointer' }}
+                    onClick={() => setSelectedOrg(org)}
+                  >
+                    <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{org.orgName}</Typography>
+                    <Typography variant="body2" sx={{ color: '#555' }}>Email: {org.email}</Typography>
+                    <Typography variant="body2" sx={{ color: '#555' }}>Phone: {org.phoneNumber}</Typography>
+                    <Typography variant="body2" sx={{ color: '#555' }}>
+                      Address: {`${org.address}, ${org.city}, ${org.state}, ${org.country}`}
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: '#555' }}>Admin: {org.adminName}</Typography>
+                    <Typography variant="body2" sx={{ color: '#555' }}>
+                      Created: {org.createdAt?.toDate
+                        ? org.createdAt.toDate().toLocaleDateString()
+                        : org.createdAt instanceof Date
+                          ? org.createdAt.toLocaleDateString()
+                          : 'N/A'}
+                    </Typography>
+                  </Card>
+                ))}
+              </Box>
+              <Box sx={{ display: { xs: 'none', md: 'block' }, overflowX: 'auto' }}>
+                <TableContainer component={Paper} elevation={3}>
+                  <Table>
+                    <TableHead sx={{ backgroundColor: '#e3f2fd' }}>
+                      <TableRow>
+                        <TableCell><strong>Organization</strong></TableCell>
+                        <TableCell><strong>Email</strong></TableCell>
+                        <TableCell><strong>Phone</strong></TableCell>
+                        <TableCell><strong>Address</strong></TableCell>
+                        <TableCell><strong>Admin</strong></TableCell>
+                        <TableCell><strong>Created At</strong></TableCell>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
+                    </TableHead>
+                    <TableBody>
+                      {organizations.map((org) => (
+                        <TableRow
+                          key={org.orgName}
+                          hover
+                          sx={{ cursor: 'pointer' }}
+                          onClick={() => setSelectedOrg(org)}
+                        >
+                          <TableCell>{org.orgName}</TableCell>
+                          <TableCell>{org.email}</TableCell>
+                          <TableCell>{org.phoneNumber}</TableCell>
+                          <TableCell>{`${org.address}, ${org.city}, ${org.state}, ${org.country}`}</TableCell>
+                          <TableCell>{org.adminName}</TableCell>
+                          <TableCell>
+                            {org.createdAt?.toDate
+                              ? org.createdAt.toDate().toLocaleDateString()
+                              : org.createdAt instanceof Date
+                                ? org.createdAt.toLocaleDateString()
+                                : 'N/A'}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Box>
             </Box>
           )}
         </>
@@ -414,30 +756,344 @@ const OrganizationListContent = ({ organizations, selectedOrg, setSelectedOrg })
   );
 };
 
+// --- SETTINGS ---
+const SettingsContent = ({
+  superAdminInfo,
+  setSuperAdminInfo,
+  handleProfileChange,
+  handleProfileSave,
+  profileSaveMsg,
+  profileSaveError,
+  handlePasswordChange,
+  passwordValues,
+  showPassword,
+  setShowPassword,
+  handlePasswordSave,
+  passwordSaveMsg,
+  passwordSaveError,
+  uploading,
+  handlePhotoUpload,
+  themeMode,
+  setThemeMode,
+  handleLogout
+}) => {
+  const [openProfile, setOpenProfile] = useState(true);
+  const [openPassword, setOpenPassword] = useState(false);
+  const [openTheme, setOpenTheme] = useState(false);
+  const [openLogout, setOpenLogout] = useState(false);
+
+  return (
+    <Box maxWidth={{ xs: '100%', sm: 550 }} mx="auto" sx={{ px: { xs: 1, sm: 0 } }}>
+      <Typography variant="h5" sx={{ fontWeight: 700, mb: 3, color: themeMode === 'dark' ? '#fff' : '#001F54', fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
+        Super Admin Settings
+      </Typography>
+
+      <Paper sx={{
+        p: 0, mb: 3, borderRadius: 3, boxShadow: 2,
+        bgcolor: themeMode === 'dark' ? '#222' : '#f9f9f9'
+      }}>
+        <Box
+          sx={{
+            px: { xs: 2, sm: 3 }, py: 2,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            borderBottom: openProfile ? `1px solid ${themeMode === 'dark' ? '#444' : '#ddd'}` : 'none',
+            bgcolor: themeMode === 'dark' ? '#23272b' : '#e3f2fd'
+          }}
+          onClick={() => setOpenProfile(open => !open)}
+          role="button"
+          aria-expanded={openProfile}
+          aria-label="Toggle Profile Information"
+        >
+          <Typography variant="subtitle1" sx={{ fontWeight: 600, flexGrow: 1, color: themeMode === 'dark' ? '#fff' : '#001F54', fontSize: { xs: '0.9rem', sm: '1rem' } }}>
+            Profile Information
+          </Typography>
+          {openProfile ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+        </Box>
+        <Collapse in={openProfile}>
+          <Box sx={{ p: { xs: 2, sm: 3 } }}>
+            <Grid container spacing={2} alignItems="center">
+              <Grid item>
+                <Box sx={{ position: 'relative', width: { xs: 60, sm: 72 }, height: { xs: 60, sm: 72 } }}>
+                  <Avatar
+                    src={superAdminInfo.photoURL}
+                    alt={superAdminInfo.name}
+                    sx={{ width: '100%', height: '100%', border: '2px solid #1976d2' }}
+                  />
+                  <IconButton
+                    component="label"
+                    sx={{
+                      position: 'absolute', bottom: 0, right: 0,
+                      bgcolor: '#fff', boxShadow: 1, p: { xs: 0.4, sm: 0.5 }, width: 32, height: 32
+                    }}
+                    disabled={uploading}
+                    aria-label="Upload Profile Photo"
+                  >
+                    <PhotoCamera fontSize="small" color="primary" />
+                    <input
+                      type="file"
+                      hidden
+                      accept="image/*"
+                      onChange={handlePhotoUpload}
+                    />
+                  </IconButton>
+                </Box>
+              </Grid>
+              <Grid item xs>
+                <TextField
+                  label="Name"
+                  name="name"
+                  value={superAdminInfo.name}
+                  onChange={handleProfileChange}
+                  fullWidth
+                  sx={{ mb: 2 }}
+                  InputProps={{
+                    style: { backgroundColor: themeMode === 'dark' ? '#111' : '#f5faff', minHeight: 48, color: themeMode === 'dark' ? '#fff' : undefined },
+                    'aria-label': 'Name'
+                  }}
+                />
+                <TextField
+                  label="Email"
+                  name="email"
+                  value={superAdminInfo.email}
+                  onChange={handleProfileChange}
+                  fullWidth
+                  sx={{ mb: 2 }}
+                  InputProps={{
+                    style: { backgroundColor: themeMode === 'dark' ? '#111' : '#f5faff', minHeight: 48, color: themeMode === 'dark' ? '#fff' : undefined },
+                    'aria-label': 'Email'
+                  }}
+                />
+              </Grid>
+            </Grid>
+            {profileSaveError && <Alert severity="error" sx={{ mt: 2, fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>{profileSaveError}</Alert>}
+            {profileSaveMsg && <Alert severity="success" sx={{ mt: 2, fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>{profileSaveMsg}</Alert>}
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={handleProfileSave}
+              sx={{ mt: 2, fontWeight: 600, px: { xs: 3, sm: 4 }, minHeight: 48 }}
+              disabled={uploading}
+              aria-label="Save Profile"
+            >
+              {uploading ? 'Saving...' : 'Save Profile'}
+            </Button>
+          </Box>
+        </Collapse>
+      </Paper>
+
+      <Paper sx={{
+        p: 0, mb: 3, borderRadius: 3, boxShadow: 2,
+        bgcolor: themeMode === 'dark' ? '#222' : '#f9f9f9'
+      }}>
+        <Box
+          sx={{
+            px: { xs: 2, sm: 3 }, py: 2,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            borderBottom: openPassword ? `1px solid ${themeMode === 'dark' ? '#444' : '#ddd'}` : 'none',
+            bgcolor: themeMode === 'dark' ? '#23272b' : '#e3f2fd'
+          }}
+          onClick={() => setOpenPassword(open => !open)}
+          role="button"
+          aria-expanded={openPassword}
+          aria-label="Toggle Change Password"
+        >
+          <Typography variant="subtitle1" sx={{ fontWeight: 600, flexGrow: 1, color: themeMode === 'dark' ? '#fff' : '#001F54', fontSize: { xs: '0.9rem', sm: '1rem' } }}>
+            Change Password
+          </Typography>
+          {openPassword ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+        </Box>
+        <Collapse in={openPassword}>
+          <Box sx={{ p: { xs: 2, sm: 3 } }}>
+            <TextField
+              label="Current Password"
+              name="currentPassword"
+              type={showPassword ? 'text' : 'password'}
+              value={passwordValues.currentPassword}
+              onChange={handlePasswordChange}
+              fullWidth
+              sx={{ mb: 2 }}
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      onClick={() => setShowPassword(s => !s)}
+                      aria-label={showPassword ? 'Hide Password' : 'Show Password'}
+                    >
+                      {showPassword ? <VisibilityOff /> : <Visibility />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+                style: { backgroundColor: themeMode === 'dark' ? '#111' : '#f5faff', minHeight: 48, color: themeMode === 'dark' ? '#fff' : undefined },
+                'aria-label': 'Current Password'
+              }}
+            />
+            <TextField
+              label="New Password"
+              name="newPassword"
+              type={showPassword ? 'text' : 'password'}
+              value={passwordValues.newPassword}
+              onChange={handlePasswordChange}
+              fullWidth
+              sx={{ mb: 2 }}
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      onClick={() => setShowPassword(s => !s)}
+                      aria-label={showPassword ? 'Hide Password' : 'Show Password'}
+                    >
+                      {showPassword ? <VisibilityOff /> : <Visibility />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+                style: { backgroundColor: themeMode === 'dark' ? '#111' : '#f5faff', minHeight: 48, color: themeMode === 'dark' ? '#fff' : undefined },
+                'aria-label': 'New Password'
+              }}
+            />
+            <TextField
+              label="Confirm New Password"
+              name="confirmPassword"
+              type={showPassword ? 'text' : 'password'}
+              value={passwordValues.confirmPassword}
+              onChange={handlePasswordChange}
+              fullWidth
+              sx={{ mb: 2 }}
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      onClick={() => setShowPassword(s => !s)}
+                      aria-label={showPassword ? 'Hide Password' : 'Show Password'}
+                    >
+                      {showPassword ? <VisibilityOff /> : <Visibility />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+                style: { backgroundColor: themeMode === 'dark' ? '#111' : '#f5faff', minHeight: 48, color: themeMode === 'dark' ? '#fff' : undefined },
+                'aria-label': 'Confirm New Password'
+              }}
+            />
+            {passwordSaveError && <Alert severity="error" sx={{ mt: 2, fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>{passwordSaveError}</Alert>}
+            {passwordSaveMsg && <Alert severity="success" sx={{ mt: 2, fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>{passwordSaveMsg}</Alert>}
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={handlePasswordSave}
+              sx={{ mt: 2, fontWeight: 600, px: { xs: 3, sm: 4 }, minHeight: 48 }}
+              aria-label="Change Password"
+            >
+              Change Password
+            </Button>
+          </Box>
+        </Collapse>
+      </Paper>
+
+      <Paper sx={{
+        p: 0, mb: 3, borderRadius: 3, boxShadow: 2,
+        bgcolor: themeMode === 'dark' ? '#222' : '#f9f9f9'
+      }}>
+        <Box
+          sx={{
+            px: { xs: 2, sm: 3 }, py: 2,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            borderBottom: openTheme ? `1px solid ${themeMode === 'dark' ? '#444' : '#ddd'}` : 'none',
+            bgcolor: themeMode === 'dark' ? '#23272b' : '#e3f2fd'
+          }}
+          onClick={() => setOpenTheme(open => !open)}
+          role="button"
+          aria-expanded={openTheme}
+          aria-label="Toggle Theme Settings"
+        >
+          <Typography variant="subtitle1" sx={{ fontWeight: 600, flexGrow: 1, color: themeMode === 'dark' ? '#fff' : '#001F54', fontSize: { xs: '0.9rem', sm: '1rem' } }}>
+            Theme / Branding
+          </Typography>
+          {openTheme ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+        </Box>
+        <Collapse in={openTheme}>
+          <Box sx={{ p: { xs: 2, sm: 3 } }}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={themeMode === 'dark'}
+                  onChange={() => setThemeMode(m => (m === 'dark' ? 'light' : 'dark'))}
+                  color="primary"
+                />
+              }
+              label={themeMode === 'dark' ? 'Dark Mode' : 'Light Mode'}
+            />
+          </Box>
+        </Collapse>
+      </Paper>
+
+      <Paper sx={{
+        p: 0, mb: 3, borderRadius: 3, boxShadow: 2,
+        bgcolor: themeMode === 'dark' ? '#222' : '#f9f9f9'
+      }}>
+        <Box
+          sx={{
+            px: { xs: 2, sm: 3 }, py: 2,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            borderBottom: openLogout ? `1px solid ${themeMode === 'dark' ? '#444' : '#ddd'}` : 'none',
+            bgcolor: themeMode === 'dark' ? '#23272b' : '#e3f2fd'
+          }}
+          onClick={() => setOpenLogout(open => !open)}
+          role="button"
+          aria-expanded={openLogout}
+          aria-label="Toggle Logout"
+        >
+          <Typography variant="subtitle1" sx={{ fontWeight: 600, flexGrow: 1, color: themeMode === 'dark' ? '#fff' : '#001F54', fontSize: { xs: '0.9rem', sm: '1rem' } }}>
+            Logout
+          </Typography>
+          {openLogout ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+        </Box>
+        <Collapse in={openLogout}>
+          <Box sx={{ p: { xs: 2, sm: 3 } }}>
+            <Button
+              variant="outlined"
+              color="error"
+              startIcon={<LogoutIcon />}
+              onClick={handleLogout}
+              sx={{ fontWeight: 600, px: { xs: 3, sm: 4 }, minHeight: 48 }}
+              aria-label="Logout"
+            >
+              Logout
+            </Button>
+          </Box>
+        </Collapse>
+      </Paper>
+    </Box>
+  );
+};
+
 // --- FOOTER ---
-const Footer = () => {
+const Footer = ({ themeMode }) => {
   return (
     <Box
       component="footer"
       sx={{
-        bgcolor: '#111',
+        bgcolor: themeMode === 'dark' ? '#111' : '#111',
         color: '#ccc',
-        p: 4,
+        p: { xs: 2, sm: 3, md: 4 },
         width: '100%',
         mt: 'auto',
       }}
     >
-      <Grid container spacing={4}>
-        {/* Copyright */}
-        <Grid item xs={12} sm={3}>
-          <Typography variant="body2" sx={{ color: '#fff', mb: 2 }}>
+      <Grid container spacing={{ xs: 2, sm: 3 }}>
+        <Grid item xs={12} sm={6} md={3}>
+          <Typography variant="body2" sx={{ color: '#fff', mb: 2, fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>
             © {new Date().getFullYear()} Helpmate. All rights reserved.
           </Typography>
         </Grid>
-
-        {/* Navigation Links */}
-        <Grid item xs={12} sm={3}>
-          <Typography variant="subtitle2" sx={{ color: '#fff', mb: 2, fontWeight: 600 }}>
+        <Grid item xs={12} sm={6} md={3}>
+          <Typography variant="subtitle2" sx={{ color: '#fff', mb: 2, fontWeight: 600, fontSize: { xs: '0.9rem', sm: '1rem' } }}>
             Navigation
           </Typography>
           <Link
@@ -445,56 +1101,58 @@ const Footer = () => {
             sx={{
               color: '#ccc',
               textDecoration: 'none',
+              fontSize: { xs: '0.8rem', sm: '0.875rem' },
               '&:hover': { color: '#2196f3', textDecoration: 'underline' },
+              display: 'block',
+              py: 0.5,
             }}
+            aria-label="About Us"
           >
             About Us
           </Link>
-          <br />
           <Link
             href="/privacy-policy"
             sx={{
               color: '#ccc',
               textDecoration: 'none',
+              fontSize: { xs: '0.8rem', sm: '0.875rem' },
               mt: 1,
-              display: 'inline-block',
+              display: 'block',
+              py: 0.5,
               '&:hover': { color: '#2196f3', textDecoration: 'underline' },
             }}
+            aria-label="Privacy Policy"
           >
             Privacy Policy
           </Link>
         </Grid>
-
-        {/* Contact Us */}
-        <Grid item xs={12} sm={3}>
-          <Typography variant="subtitle2" sx={{ color: '#fff', mb: 2, fontWeight: 600 }}>
+        <Grid item xs={12} sm={6} md={3}>
+          <Typography variant="subtitle2" sx={{ color: '#fff', mb: 2, fontWeight: 600, fontSize: { xs: '0.9rem', sm: '1rem' } }}>
             Contact Us
           </Typography>
-          <Typography variant="body2" sx={{ mb: 1 }}>
+          <Typography variant="body2" sx={{ mb: 1, fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>
             <strong>Email:</strong> support@helpmate.com
           </Typography>
-          <Typography variant="body2" sx={{ mb: 1 }}>
+          <Typography variant="body2" sx={{ mb: 1, fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>
             <strong>Phone:</strong> +91 76755465645
           </Typography>
-          <Typography variant="body2">
+          <Typography variant="body2" sx={{ fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>
             <strong>Address:</strong> Helpmate St, Suite 100, Koramangala, Bengaluru, Karnataka, India-560034
           </Typography>
         </Grid>
-
-        {/* Social Media Icons */}
-        <Grid item xs={12} sm={3}>
-          <Typography variant="subtitle2" sx={{ color: '#fff', mb: 2, fontWeight: 600 }}>
+        <Grid item xs={12} sm={6} md={3}>
+          <Typography variant="subtitle2" sx={{ color: '#fff', mb: 2, fontWeight: 600, fontSize: { xs: '0.9rem', sm: '1rem' } }}>
             Follow Us
           </Typography>
-          <Box sx={{ display: 'flex', gap: 2 }}>
-            <Link href="https://instagram.com/helpmate" target="_blank" sx={{ color: '#ccc', '&:hover': { color: '#2196f3' } }}>
-              <InstagramIcon />
+          <Box sx={{ display: 'flex', gap: { xs: 1.5, sm: 2 } }}>
+            <Link href="https://instagram.com/helpmate" target="_blank" sx={{ color: '#ccc', '&:hover': { color: '#2196f3' } }} aria-label="Instagram">
+              <InstagramIcon sx={{ fontSize: { xs: 24, sm: 28 } }} />
             </Link>
-            <Link href="https://x.com/helpmate" target="_blank" sx={{ color: '#ccc', '&:hover': { color: '#2196f3' } }}>
-              <TwitterIcon />
+            <Link href="https://x.com/helpmate" target="_blank" sx={{ color: '#ccc', '&:hover': { color: '#2196f3' } }} aria-label="X">
+              <TwitterIcon sx={{ fontSize: { xs: 24, sm: 28 } }} />
             </Link>
-            <Link href="https://github.com/helpmate" target="_blank" sx={{ color: '#ccc', '&:hover': { color: '#2196f3' } }}>
-              <GitHubIcon />
+            <Link href="https://github.com/helpmate" target="_blank" sx={{ color: '#ccc', '&:hover': { color: '#2196f3' } }} aria-label="GitHub">
+              <GitHubIcon sx={{ fontSize: { xs: 24, sm: 28 } }} />
             </Link>
           </Box>
         </Grid>
@@ -505,6 +1163,20 @@ const Footer = () => {
 
 // --- MAIN DASHBOARD ---
 const SuperAdminDashboard = () => {
+  const [themeMode, setThemeMode] = useState('light');
+  const [superAdminInfo, setSuperAdminInfo] = useState({
+    name: '', email: '', username: '', photoURL: '', password: '', docId: null,
+  });
+  const [loadingProfile, setLoadingProfile] = useState(true);
+  const [profileSaveMsg, setProfileSaveMsg] = useState('');
+  const [profileSaveError, setProfileSaveError] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [passwordValues, setPasswordValues] = useState({
+    currentPassword: '', newPassword: '', confirmPassword: ''
+  });
+  const [showPassword, setShowPassword] = useState(false);
+  const [passwordSaveMsg, setPasswordSaveMsg] = useState('');
+  const [passwordSaveError, setPasswordSaveError] = useState('');
   const [selectedPage, setSelectedPage] = useState('Dashboard');
   const [showOrgAdminForm, setShowOrgAdminForm] = useState(true);
   const [orgForm, setOrgForm] = useState({
@@ -513,24 +1185,183 @@ const SuperAdminDashboard = () => {
     adminName: '', adminEmail: '', adminPhoneNumber: '', adminUsername: '', adminPassword: ''
   });
   const [errorMsg, setErrorMsg] = useState('');
-  const [successMsg, setSuccessMsg] = useState('');
+  const [openDialog, setOpenDialog] = useState(false);
   const [organizations, setOrganizations] = useState([]);
   const [selectedOrg, setSelectedOrg] = useState(null);
+  const [adminCount, setAdminCount] = useState(0);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [accessRequests, setAccessRequests] = useState([]);
 
   useEffect(() => {
-    if (selectedPage === 'Add Organization' || selectedPage === 'Organization List' || selectedPage === 'Dashboard') {
-      const fetchOrgs = async () => {
-        const snap = await getDocs(collection(db, 'Organizations'));
-        setOrganizations(snap.docs.map(d => ({ orgName: d.id, ...d.data() })));
-      };
-      fetchOrgs();
+    const fetchSuperAdmin = async () => {
+      setLoadingProfile(true);
+      const usersSnap = await getDocs(collection(db, 'Users'));
+      let found = false;
+      usersSnap.forEach((docu) => {
+        const d = docu.data();
+        if (d.role && d.role.toLowerCase() === 'superadmin') {
+          setSuperAdminInfo({
+            name: d.adminName || d.name || '',
+            email: d.adminEmail || d.email || '',
+            username: d.username || '',
+            photoURL: d.photoURL || '',
+            password: d.password || '',
+            docId: docu.id
+          });
+          found = true;
+        }
+      });
+      setLoadingProfile(false);
+      if (!found) setSuperAdminInfo({ name: '', email: '', username: '', photoURL: '', password: '', docId: null });
+    };
+
+    const fetchAccessRequests = async () => {
+      const requestsSnap = await getDocs(collection(db, 'accessRequests'));
+      const requests = requestsSnap.docs
+        .map(doc => ({ requestId: doc.id, ...doc.data() }))
+        .filter(request => request.status === 'Pending');
+      setAccessRequests(requests);
+    };
+
+    fetchSuperAdmin();
+    fetchAccessRequests();
+  }, []);
+
+  useEffect(() => {
+    const fetchOrgsAndAdmins = async () => {
+      const orgSnap = await getDocs(collection(db, 'Organizations'));
+      setOrganizations(orgSnap.docs.map(d => ({ orgName: d.id, ...d.data() })));
+
+      const usersSnap = await getDocs(collection(db, 'Users'));
+      let adminC = 0;
+      usersSnap.forEach(u => {
+        if (
+          (u.data().role && u.data().role.toLowerCase() === 'admin') ||
+          (u.data().username && u.data().username.toLowerCase().includes('admin'))
+        ) {
+          adminC++;
+        }
+      });
+      setAdminCount(adminC);
+    };
+    if (selectedPage === 'Dashboard' || selectedPage === 'Add Organization' || selectedPage === 'Organization List') {
+      fetchOrgsAndAdmins();
     }
   }, [selectedPage]);
+
+  const handleProfileChange = (e) => {
+    setSuperAdminInfo(prev => ({
+      ...prev,
+      [e.target.name]: e.target.value
+    }));
+    setProfileSaveMsg('');
+    setProfileSaveError('');
+  };
+
+  const handleProfileSave = async () => {
+    setProfileSaveMsg('');
+    setProfileSaveError('');
+    if (!superAdminInfo.name || !superAdminInfo.email) {
+      setProfileSaveError('Name and email are required.');
+      return;
+    }
+    if (!superAdminInfo.docId) {
+      setProfileSaveError('Super admin not found.');
+      return;
+    }
+    setUploading(true);
+    try {
+      await updateDoc(doc(db, 'Users', superAdminInfo.docId), {
+        adminName: superAdminInfo.name,
+        adminEmail: superAdminInfo.email,
+        photoURL: superAdminInfo.photoURL
+      });
+      setProfileSaveMsg('Profile saved successfully!');
+    } catch (err) {
+      setProfileSaveError('Error saving profile: ' + err.message);
+    }
+    setUploading(false);
+  };
+
+  const handlePhotoUpload = async (e) => {
+    if (e.target.files && e.target.files[0]) {
+      setUploading(true);
+      setProfileSaveMsg('');
+      setProfileSaveError('');
+      const file = e.target.files[0];
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('upload_preset', UPLOAD_PRESET);
+      try {
+        const resp = await fetch(CLOUDINARY_URL, {
+          method: 'POST',
+          body: formData
+        });
+        const data = await resp.json();
+        if (data.secure_url) {
+          setSuperAdminInfo(prev => ({
+            ...prev,
+            photoURL: data.secure_url
+          }));
+        } else {
+          setProfileSaveError('Image upload failed.');
+        }
+      } catch (err) {
+        setProfileSaveError('Image upload error: ' + err.message);
+      }
+      setUploading(false);
+    }
+  };
+
+  const handlePasswordChange = (e) => {
+    setPasswordValues({ ...passwordValues, [e.target.name]: e.target.value });
+    setPasswordSaveMsg('');
+    setPasswordSaveError('');
+  };
+
+  const handlePasswordSave = async () => {
+    setPasswordSaveMsg('');
+    setPasswordSaveError('');
+    if (!passwordValues.currentPassword || !passwordValues.newPassword || !passwordValues.confirmPassword) {
+      setPasswordSaveError('Please fill all fields.');
+      return;
+    }
+    if (passwordValues.newPassword !== passwordValues.confirmPassword) {
+      setPasswordSaveError('New password and confirm password do not match.');
+      return;
+    }
+    if (!superAdminInfo.docId) {
+      setPasswordSaveError('Super admin not found.');
+      return;
+    }
+    if (passwordValues.currentPassword !== superAdminInfo.password) {
+      setPasswordSaveError('Current password is incorrect.');
+      return;
+    }
+    try {
+      await updateDoc(doc(db, 'Users', superAdminInfo.docId), {
+        password: passwordValues.newPassword
+      });
+      setPasswordSaveMsg('Password changed successfully!');
+      setSuperAdminInfo(prev => ({
+        ...prev,
+        password: passwordValues.newPassword
+      }));
+      setPasswordValues({ currentPassword: '', newPassword: '', confirmPassword: '' });
+    } catch (err) {
+      setPasswordSaveError('Error updating password: ' + err.message);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.clear();
+    window.location.reload();
+  };
 
   const handleFormChange = (e) => {
     setOrgForm({ ...orgForm, [e.target.name]: e.target.value });
     setErrorMsg('');
-    setSuccessMsg('');
+    setOpenDialog(false);
   };
 
   const handleCreateOrgAndAdmin = async () => {
@@ -540,10 +1371,15 @@ const SuperAdminDashboard = () => {
       adminName, adminEmail, adminPhoneNumber, adminUsername, adminPassword
     } = orgForm;
 
-    if (!orgName || !email || !field || !phoneNumber || !website ||
-        !address || !city || !state || !country ||
-        !adminName || !adminEmail || !adminPhoneNumber || !adminUsername || !adminPassword) {
-      setErrorMsg('Please fill all fields');
+    if (!orgName || !email || !field || !phoneNumber || !address || !city || !state || !country ||
+      !adminName || !adminEmail || !adminPhoneNumber || !adminUsername || !adminPassword) {
+      setErrorMsg('Please fill all required fields');
+      return;
+    }
+
+    const phoneRegex = /^\+?[1-9]\d{9}$/;
+    if (!phoneRegex.test(phoneNumber) || !phoneRegex.test(adminPhoneNumber)) {
+      setErrorMsg('Please enter valid phone numbers (e.g., +1234567890).');
       return;
     }
 
@@ -577,15 +1413,66 @@ const SuperAdminDashboard = () => {
         address: '', city: '', state: '', country: '',
         adminName: '', adminEmail: '', adminPhoneNumber: '', adminUsername: '', adminPassword: ''
       });
-      setShowOrgAdminForm(false);
       setOrganizations(prev => [...prev, {
         orgName, email, field, phoneNumber, website,
         address, city, state, country,
         adminName, adminEmail, adminPhoneNumber, adminUsername, createdAt
       }]);
-      setSuccessMsg('Organization created successfully!');
+      setOpenDialog(true);
+      setAdminCount(c => c + 1);
     } catch (err) {
       setErrorMsg('Error: ' + err.message);
+    }
+  };
+
+  const handleApproveRequest = async (request, adminUsername, adminPassword) => {
+    const {
+      orgName, category: field, orgEmail: email, orgPhone: phoneNumber, website,
+      address: { street: address, city, state, postalCode, country },
+      adminName, adminEmail, adminPhone
+    } = request;
+
+    const phoneRegex = /^\+?[1-9]\d{9}$/;
+    if (!phoneRegex.test(phoneNumber) || !phoneRegex.test(adminPhone)) {
+      setErrorMsg('Please enter valid phone numbers (e.g., +1234567890).');
+      return;
+    }
+
+    const adminRef = doc(db, 'Users', adminUsername.toLowerCase());
+    const orgRef = doc(db, 'Organizations', orgName);
+
+    try {
+      const createdAt = new Date();
+      await setDoc(orgRef, {
+        orgName, email, field, phoneNumber, website,
+        address, city, state, country,
+        adminName, adminEmail, adminPhoneNumber: adminPhone, adminUsername, createdAt
+      });
+      await setDoc(adminRef, {
+        username: adminUsername.toLowerCase(),
+        password: adminPassword,
+        orgName,
+        role: 'admin',
+        adminName,
+        adminEmail,
+        adminPhoneNumber: adminPhone,
+        createdAt
+      });
+      await updateDoc(doc(db, 'accessRequests', request.requestId), {
+        status: 'Approved',
+        approvedAt: Timestamp.now()
+      });
+
+      setOrganizations(prev => [...prev, {
+        orgName, email, field, phoneNumber, website,
+        address, city, state, country,
+        adminName, adminEmail, adminPhoneNumber: adminPhone, adminUsername, createdAt
+      }]);
+      setAccessRequests(prev => prev.filter(r => r.requestId !== request.requestId));
+      setAdminCount(c => c + 1);
+      setOpenDialog(true);
+    } catch (err) {
+      throw new Error('Error approving request: ' + err.message);
     }
   };
 
@@ -594,8 +1481,37 @@ const SuperAdminDashboard = () => {
       case 'Dashboard':
         return (
           <Box>
-            <OrganizationFieldBarChart organizations={organizations} />
-            {/* Add more graphs or summary stats here as needed */}
+            <Box sx={{ mb: 3, textAlign: 'center' }}>
+              <Typography variant="h4" sx={{
+                fontWeight: 900, letterSpacing: 1.5, color: themeMode === 'dark' ? '#90caf9' : '#1976d2', mb: 1,
+                fontSize: { xs: '1.5rem', sm: '2rem', md: '2.25rem' }
+              }}>
+                HELPMATE
+              </Typography>
+              <Typography variant="h6" sx={{ fontWeight: 500, color: themeMode === 'dark' ? '#ccc' : '#444', mb: 1, fontSize: { xs: '1rem', sm: '1.25rem' } }}>
+                Welcome to your Super Admin Dashboard
+              </Typography>
+              <Typography variant="body1" sx={{ color: themeMode === 'dark' ? '#aaa' : '#666', fontSize: { xs: '0.85rem', sm: '1rem' } }}>
+                Get insights about your organizations and admins at a glance!
+              </Typography>
+            </Box>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 4 }} justifyContent="center">
+              <StatCard
+                icon={<GroupIcon fontSize="inherit" />}
+                label="Total Organizations"
+                value={organizations.length}
+                color="#1976d2"
+                themeMode={themeMode}
+              />
+              <StatCard
+                icon={<SupervisorAccountIcon fontSize="inherit" />}
+                label="Total Admins"
+                value={adminCount}
+                color="#ff9800"
+                themeMode={themeMode}
+              />
+            </Stack>
+            <OrganizationFieldBarChart organizations={organizations} themeMode={themeMode} />
           </Box>
         );
       case 'Add Organization':
@@ -607,7 +1523,11 @@ const SuperAdminDashboard = () => {
             showOrgAdminForm={showOrgAdminForm}
             setShowOrgAdminForm={setShowOrgAdminForm}
             errorMsg={errorMsg}
-            successMsg={successMsg}
+            openDialog={openDialog}
+            setOpenDialog={setOpenDialog}
+            accessRequests={accessRequests}
+            setAccessRequests={setAccessRequests}
+            handleApproveRequest={handleApproveRequest}
           />
         );
       case 'Organization List':
@@ -619,18 +1539,103 @@ const SuperAdminDashboard = () => {
           />
         );
       case 'Settings':
-        return <Paper sx={{ p: 3, mb: 4 }}><Typography>Settings coming soon...</Typography></Paper>;
+        return (
+          <SettingsContent
+            superAdminInfo={superAdminInfo}
+            setSuperAdminInfo={setSuperAdminInfo}
+            handleProfileChange={handleProfileChange}
+            handleProfileSave={handleProfileSave}
+            profileSaveMsg={profileSaveMsg}
+            profileSaveError={profileSaveError}
+            handlePasswordChange={handlePasswordChange}
+            passwordValues={passwordValues}
+            showPassword={showPassword}
+            setShowPassword={setShowPassword}
+            handlePasswordSave={handlePasswordSave}
+            passwordSaveMsg={passwordSaveMsg}
+            passwordSaveError={passwordSaveError}
+            uploading={uploading}
+            handlePhotoUpload={handlePhotoUpload}
+            themeMode={themeMode}
+            setThemeMode={setThemeMode}
+            handleLogout={handleLogout}
+          />
+        );
       default:
         return null;
     }
   };
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: '#f8f9fa' }}>
-      {/* Sidebar */}
+    <Box sx={{
+      display: 'flex',
+      minHeight: '100vh',
+      bgcolor: themeMode === 'dark' ? '#151a21' : '#f8f9fa',
+      overflowX: 'hidden',
+    }}>
+      {/* Sidebar for Mobile (Drawer) */}
+      <Drawer
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        sx={{
+          display: { xs: 'block', md: 'none' },
+          '& .MuiDrawer-paper': {
+            width: SIDEBAR_WIDTH,
+            bgcolor: themeMode === 'dark' ? '#181c23' : '#111',
+            p: 2,
+            boxSizing: 'border-box',
+          },
+        }}
+      >
+        <Typography variant="h5" sx={{
+          color: themeMode === 'dark' ? '#fff' : '#fff',
+          mb: 2, fontWeight: 700, letterSpacing: 1.2, px: 2
+        }}>
+          Super Admin
+        </Typography>
+        <Divider sx={{ bgcolor: '#444', mb: 2 }} />
+        <List>
+          {sidebarItems.map(item => (
+            <ListItem
+              button
+              key={item.text}
+              selected={selectedPage === item.text}
+              onClick={() => {
+                setSelectedPage(item.text);
+                if (item.text !== 'Organization List') setSelectedOrg(null);
+                setSidebarOpen(false);
+              }}
+              sx={{
+                borderRadius: 2,
+                minHeight: 48,
+                '&.Mui-selected': {
+                  backgroundColor: themeMode === 'dark' ? '#263238' : '#333',
+                  '&:hover': { backgroundColor: themeMode === 'dark' ? '#37474f' : '#444' },
+                },
+                '&:hover': { backgroundColor: themeMode === 'dark' ? '#263238' : '#222' },
+                mb: 1,
+              }}
+              aria-label={item.text}
+            >
+              <ListItemIcon sx={{ color: selectedPage === item.text ? '#2196f3' : '#ccc', minWidth: 40 }}>
+                {item.icon}
+              </ListItemIcon>
+              <ListItemText
+                primary={item.text}
+                sx={{
+                  color: selectedPage === item.text ? '#2196f3' : (themeMode === 'dark' ? '#fff' : '#ccc'),
+                  fontWeight: 600
+                }}
+              />
+            </ListItem>
+          ))}
+        </List>
+      </Drawer>
+
+      {/* Sidebar for Desktop */}
       <Box sx={{
         width: SIDEBAR_WIDTH,
-        bgcolor: '#111',
+        bgcolor: themeMode === 'dark' ? '#181c23' : '#111',
         p: 2,
         height: '100vh',
         position: 'fixed',
@@ -638,10 +1643,15 @@ const SuperAdminDashboard = () => {
         top: 0,
         bottom: 0,
         zIndex: 1200,
-        display: 'flex',
+        display: { xs: 'none', md: 'flex' },
         flexDirection: 'column'
       }}>
-        <Typography variant="h5" sx={{ color: '#fff', mb: 2 }}>Super Admin</Typography>
+        <Typography variant="h5" sx={{
+          color: themeMode === 'dark' ? '#fff' : '#fff',
+          mb: 2, fontWeight: 700, letterSpacing: 1.2
+        }}>
+          Super Admin
+        </Typography>
         <Divider sx={{ bgcolor: '#444', mb: 2 }} />
         <List sx={{ flexGrow: 1 }}>
           {sidebarItems.map(item => (
@@ -655,19 +1665,25 @@ const SuperAdminDashboard = () => {
               }}
               sx={{
                 borderRadius: 2,
+                minHeight: 48,
                 '&.Mui-selected': {
-                  backgroundColor: '#333',
-                  '&:hover': { backgroundColor: '#444' },
+                  backgroundColor: themeMode === 'dark' ? '#263238' : '#333',
+                  '&:hover': { backgroundColor: themeMode === 'dark' ? '#37474f' : '#444' },
                 },
-                '&:hover': { backgroundColor: '#222' },
+                '&:hover': { backgroundColor: themeMode === 'dark' ? '#263238' : '#222' },
+                mb: 1
               }}
+              aria-label={item.text}
             >
-              <ListItemIcon sx={{ color: selectedPage === item.text ? '#2196f3' : '#ccc' }}>
+              <ListItemIcon sx={{ color: selectedPage === item.text ? '#2196f3' : '#ccc', minWidth: 40 }}>
                 {item.icon}
               </ListItemIcon>
               <ListItemText
                 primary={item.text}
-                sx={{ color: selectedPage === item.text ? '#2196f3' : '#ccc' }}
+                sx={{
+                  color: selectedPage === item.text ? '#2196f3' : (themeMode === 'dark' ? '#fff' : '#ccc'),
+                  fontWeight: 600
+                }}
               />
             </ListItem>
           ))}
@@ -681,19 +1697,34 @@ const SuperAdminDashboard = () => {
           display: 'flex',
           flexDirection: 'column',
           minHeight: '100vh',
-          ml: `${SIDEBAR_WIDTH}px`, // keep content away from sidebar
-          width: { xs: '100%', md: `calc(100vw - ${SIDEBAR_WIDTH}px)` },
+          ml: { xs: 0, md: `${SIDEBAR_WIDTH}px` },
+          width: { xs: '100%', md: `calc(100% - ${SIDEBAR_WIDTH}px)` },
           boxSizing: 'border-box',
         }}
       >
-        <Box sx={{ flex: 1, p: 3, overflowY: 'auto', width: '100%', boxSizing: 'border-box' }}>
-          {renderContent()}
+        <Box sx={{
+          display: { xs: 'flex', md: 'none' },
+          p: 2,
+          bgcolor: themeMode === 'dark' ? '#181c23' : '#111',
+          position: 'sticky',
+          top: 0,
+          zIndex: 1100,
+        }}>
+          <IconButton onClick={() => setSidebarOpen(true)} aria-label="Open Sidebar">
+            <MenuIcon sx={{ color: '#fff' }} />
+          </IconButton>
         </Box>
-        {/* Footer always at the bottom */}
-        <Footer />
+        <Box sx={{
+          flex: 1, p: { xs: 2, sm: 3 },
+          overflowY: 'auto', width: '100%', boxSizing: 'border-box'
+        }}>
+          {loadingProfile && selectedPage === 'Settings'
+            ? <Typography>Loading...</Typography>
+            : renderContent()}
+        </Box>
+        
       </Box>
     </Box>
   );
 };
-
 export default SuperAdminDashboard;
