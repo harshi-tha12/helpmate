@@ -189,7 +189,8 @@ const getAdminAlerts = (tickets, adminOrg, now = Date.now()) => {
     const assignedAgent = (ticket.assignedAgent || "").trim().toLowerCase();
     const status = (ticket.status || "").toLowerCase();
     const isClosed = status === "closed" || status ==="resolved";
-    if (assignedAgent !== "" && assignedAgent !== "unassigned" || isClosed) return;
+    if ((assignedAgent !== "" && assignedAgent !== "unassigned") || isClosed) return;
+
 
     const createdAt = toMs(ticket.createdAt);
     if (!createdAt) return;

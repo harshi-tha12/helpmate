@@ -238,24 +238,18 @@ const AdminDashboard = () => {
       ),
     [agentTicketCounts, search.agent, sort.agent]
   );
-  const filteredOrganizations = useMemo(
-    () =>
-      sortByField(
-        organizations.filter(o =>
-          o.orgname.toLowerCase().includes(search.organization.toLowerCase())
-        ),
-        sort.organization,
-        sort.organization.field === "createdAt"
-      ),
-    [organizations, search.organization, sort.organization]
-  );
-
+  
   const toggleDrawer = () => setDrawerOpen(p => !p);
+  
   const handleLogout = {
-    click: () => setDialogs(d => ({ ...d, logout: true })),
-    confirm: () => (sessionStorage.clear(), navigate("/")),
-    cancel: () => setDialogs(d => ({ ...d, logout: false }))
-  };
+  click: () => setDialogs(d => ({ ...d, logout: true })),
+  confirm: () => {
+    sessionStorage.clear();
+    navigate("/");
+  },
+  cancel: () => setDialogs(d => ({ ...d, logout: false }))
+};
+
   const handleNavItemClick = index => {
     setSelectedIndex(index);
     if (isMobile) setDrawerOpen(false);

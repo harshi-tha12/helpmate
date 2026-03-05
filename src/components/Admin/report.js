@@ -304,26 +304,7 @@ const Reports = ({ adminData }) => {
     }));
   };
 
-  const getTicketStats = (filterFn) => {
-    const filtered = tickets?.filter(filterFn) ?? [];
-    const resolved = filtered.filter(t => t.status?.toLowerCase() === "closed");
-    const avgResponseTime = resolved.length
-      ? resolved.reduce(
-          (sum, t) => sum + (parseTimeToHours(t.respondedTime) || 0),
-          0
-        ) / resolved.length : 0;
-    const avgResolvedTime = resolved.length
-      ? resolved.reduce(
-          (sum, t) => sum + (parseTimeToHours(t.resolvedTime) || 0),
-          0
-        ) / resolved.length : 0;
-    return {
-      total: filtered.length,
-      resolved: resolved.length,
-      avgResponseTime: avgResponseTime ? `${avgResponseTime.toFixed(2)} hours` : "N/A",
-      avgResolvedTime: avgResolvedTime ? `${avgResolvedTime.toFixed(2)} hours` : "N/A"
-    };
-  };
+  
 
   const getWeeklyMonthlyTickets = () => {
     if (!tickets) return { weekly: [], monthly: [] };

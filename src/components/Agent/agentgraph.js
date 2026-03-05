@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Box, Typography, Card, CardContent, Grid, useTheme, useMediaQuery } from "@mui/material";
+import { Box, Typography, Card, Grid, useTheme, useMediaQuery } from "@mui/material";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "../../firebase.js";
 import { Bar } from "react-chartjs-2";
@@ -42,7 +42,7 @@ const AgentGraph = ({ username, orgName, department }) => {
     assignedByMonth: Array(12).fill(0)
   });
   const [loading, setLoading] = useState(true);
-  const currentYear = dayjs().year();
+  
 
   // Responsive helpers
   const theme = useTheme();

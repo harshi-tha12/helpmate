@@ -23,7 +23,7 @@ import KnowledgeBase from './knowledgebase.js';
 import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "../../firebase.js";
 import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+
 import UserGraph from "./usergraph.js";
 import UserSettings from "./usersettings.js";
 
@@ -54,7 +54,7 @@ const UserHome = () => {
   const openDownloadMenu = Boolean(anchorEl);
   const theme = useTheme();
   const isSmallScreen = useMediaQuery(theme?.breakpoints?.down("sm") ?? ((theme) => theme.breakpoints.down("sm")));
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  
   const [themeMode, setThemeMode] = useState("light"); // Or grab from context/store
   const [mustChangePassword, setMustChangePassword] = useState(false);
   const [checkingPassword, setCheckingPassword] = useState(true); // For loading spinner

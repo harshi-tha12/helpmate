@@ -31,9 +31,7 @@ const Manage = ({ manageType, organization, NAVY, WHITE, LIGHT_GREY, SELECT_BG }
   const [message, setMessage] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
-  const [editingItem, setEditingItem] = useState(null);
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const [setEditingItem,editingItem] = useState(null);
   const orgPrefix = `${organization}.`;
 
   // Get suffix from a prefixed ID

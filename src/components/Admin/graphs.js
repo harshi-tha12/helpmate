@@ -38,7 +38,7 @@ const Admingraph = ({ orgName }) => {
   const [userCount, setUserCount] = useState(0);
   const [agentCount, setAgentCount] = useState(0);
   const [departmentCount, setDepartmentCount] = useState(0);
-  const [departmentIds, setDepartmentIds] = useState([]);
+  const [setDepartmentIds] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {

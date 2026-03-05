@@ -9,8 +9,6 @@ import SuperAdminDashboard from './pages/superadmindashboard';
 import AdminDashboard from "./components/Admin/adminhome";
 import AgentDashboard from "./components/Agent/agenthome";
 import UserHome from "./components/User/userhome";
-import TicketDetails from "./components/Admin/ticketdetails";
-import AgentSettings from "./components/Agent/agentsettings";
 
 
 function App() {

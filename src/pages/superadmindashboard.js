@@ -3,7 +3,7 @@ import {
   Box, Typography, Button, Paper, Grid, List, ListItem,
   ListItemIcon, ListItemText, Divider, TextField, Collapse,
   Alert, Table, TableContainer, TableBody, TableCell,
-  TableHead, TableRow, Card, CardContent, Link, 
+  TableHead, TableRow, Card, CardContent,
   Avatar, IconButton, InputAdornment, Switch, FormControlLabel, MenuItem,
   Drawer, Dialog, DialogTitle, DialogContent, DialogActions, 
 } from '@mui/material';
@@ -11,9 +11,7 @@ import DashboardIcon from '@mui/icons-material/Dashboard';
 import AddBusinessIcon from '@mui/icons-material/AddBusiness';
 import ListIcon from '@mui/icons-material/List';
 import SettingsIcon from '@mui/icons-material/Settings';
-import InstagramIcon from '@mui/icons-material/Instagram';
-import TwitterIcon from '@mui/icons-material/Twitter';
-import GitHubIcon from '@mui/icons-material/GitHub';
+
 import PhotoCamera from '@mui/icons-material/PhotoCamera';
 import LogoutIcon from '@mui/icons-material/Logout';
 import Visibility from '@mui/icons-material/Visibility';

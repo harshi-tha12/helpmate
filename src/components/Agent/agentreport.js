@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import {
   Box, Typography, Table, TableContainer, TableHead, TableBody, TableRow, TableCell, Chip, CircularProgress,
-  IconButton, Menu, MenuItem, Tooltip, Paper, Button
+  IconButton, Menu, MenuItem, Tooltip, Paper,
 } from "@mui/material";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 import { collection, query, where, getDocs } from "firebase/firestore";
@@ -137,54 +137,7 @@ const AgentReport = ({ username, orgName, department }) => {  // ✅ Added depar
   };
 
   // Generate LaTeX content for PDF
-  const generateLatexContent = (ticket) => {
-    const remarksText = Array.isArray(ticket.remarks)
-      ? ticket.remarks
-          .map(
-            (r, idx) =>
-              `\\item[${idx + 1}] Status: ${r.status}, By: ${r.by}, At: ${new Date(r.at).toLocaleString()}, Text: ${r.text.replace(/&/g, "\\&").replace(/%/g, "\\%")}`
-          )
-          .join("\n")
-      : "\\item No remarks";
-    return `
-\\documentclass[a4paper,12pt]{article}
-\\usepackage[utf8]{inputenc}
-\\usepackage[T1]{fontenc}
-\\usepackage{lmodern}
-\\usepackage{geometry}
-\\usepackage{booktabs}
-\\usepackage{enumitem}
-\\geometry{margin=1in}
-
-\\begin{document}
-
-\\title{Closed Ticket Report}
-\\author{Agent: ${username}}
-\\date{\\today}
-\\maketitle
-
-\\section*{Ticket Details}
-\\begin{tabular}{ll}
-\\toprule
-\\textbf{Field} & \\textbf{Value} \\\\
-\\midrule
-Ticket ID & ${ticket.id} \\\\
-Problem & ${ticket.problem || "N/A"} \\\\
-Department & ${ticket.department || "N/A"} \\\\
-Created At & ${ticket.createdAt?.seconds ? new Date(ticket.createdAt.seconds * 1000).toLocaleString() : "N/A"} \\\\
-Closed At & ${ticket.closedAt?.seconds ? new Date(ticket.closedAt.seconds * 1000).toLocaleString() : "N/A"} \\\\
-Status & ${ticket.status} \\\\
-\\bottomrule
-\\end{tabular}
-
-\\section*{Remarks}
-\\begin{itemize}[leftmargin=*]
-${remarksText}
-\\end{itemize}
-
-\\end{document}
-`;
-  };
+  
 
   // Download PDF
   const handleDownloadPDFOption = () => {

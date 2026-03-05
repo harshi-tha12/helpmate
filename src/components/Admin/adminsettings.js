@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import {
-    Box, Typography, Card, CardContent, Collapse, IconButton, TextField, Button, FormControl, InputLabel,
-    Select, MenuItem, Dialog, DialogTitle, DialogContent, DialogActions, FormHelperText
+    Box, Typography, Card, CardContent, Collapse, TextField, Button, FormControl, InputLabel,
+    Select, MenuItem, Dialog, DialogTitle, DialogContent, DialogActions,
 } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
@@ -35,40 +35,52 @@ const AdminSettings = ({ username, themeMode: propThemeMode, setThemeMode, onLog
 
     // Sync localThemeMode with propThemeMode
     useEffect(() => {
-        if (propThemeMode && themeOptions[propThemeMode]) {
-            setLocalThemeMode(propThemeMode);
-        }
-    }, [propThemeMode]);
+    if (propThemeMode && themeOptions[propThemeMode]) {
+        setLocalThemeMode(propThemeMode);
+    }
+}, [propThemeMode, themeOptions]);
 
-    useEffect(() => {
-        const fetchAdminData = async () => {
-            try {
-                const userRef = doc(db, "Users", username);
-                const userSnap = await getDoc(userRef);
-                if (userSnap.exists()) {
-                    const data = userSnap.data();
-                    if (data.role === "admin") {
-                        setProfileData({
-                            name: data.name || "",
-                            profilePicture: data.profilePicture || null,
-                        });
-                        setPasswordData((prev) => ({ ...prev, currentUsername: username }));
-                        if (data.theme && themeOptions[data.theme]) {
-                            setLocalThemeMode(data.theme);
-                            setThemeMode(data.theme);
-                        }
-                    } else {
-                        setErrorMessage("Access denied: User is not an admin.");
+useEffect(() => {
+    const fetchAdminData = async () => {
+        try {
+            const userRef = doc(db, "Users", username);
+            const userSnap = await getDoc(userRef);
+
+            if (userSnap.exists()) {
+                const data = userSnap.data();
+
+                if (data.role === "admin") {
+                    setProfileData({
+                        name: data.name || "",
+                        profilePicture: data.profilePicture || null,
+                    });
+
+                    setPasswordData((prev) => ({
+                        ...prev,
+                        currentUsername: username,
+                    }));
+
+                    if (data.theme && themeOptions[data.theme]) {
+                        setLocalThemeMode(data.theme);
+                        setThemeMode(data.theme);
                     }
+
                 } else {
-                    setErrorMessage("Admin data not found.");
+                    setErrorMessage("Access denied: User is not an admin.");
                 }
-            } catch (error) {
-                setErrorMessage("Failed to load admin data: " + error.message);
+
+            } else {
+                setErrorMessage("Admin data not found.");
             }
-        };
-        fetchAdminData();
-    }, [username, setThemeMode]);
+
+        } catch (error) {
+            setErrorMessage("Failed to load admin data: " + error.message);
+        }
+    };
+
+    fetchAdminData();
+}, [username, setThemeMode, themeOptions]);
+
 
     const handleSectionToggle = (section) => {
         setExpandedSection(expandedSection === section ? null : section);

@@ -61,7 +61,7 @@ const DisplayTickets = ({
   // Responsive breakpoints
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm")); // <600px
-  const isTablet = useMediaQuery(theme.breakpoints.down("md")); // <900px
+  // <900px
 
   useEffect(() => {
     setInternalSearch(search || "");
