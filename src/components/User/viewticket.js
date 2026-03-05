@@ -1,24 +1,22 @@
 import React, { useEffect, useState, useMemo } from "react";
-import { collection, query, where, getDocs, doc, setDoc, Timestamp } from "firebase/firestore";
+import { collection, query, where, getDocs, doc, setDoc, deleteDoc, Timestamp } from "firebase/firestore";
 import { db } from "../../firebase.js";
 import {
   Typography, Box, Stack, CircularProgress, IconButton, TextField, MenuItem,
-  Button, Alert, Dialog, DialogTitle, DialogContent, Fade, Table, TableBody, TableCell,
-  TableContainer, TableHead, TableRow, Tooltip, Collapse, Paper, InputAdornment, FormControl,
-  InputLabel, Select, Card, CardContent, useTheme, useMediaQuery, Chip,
+  Button, Alert, Dialog, DialogTitle, DialogContent, DialogActions, Fade, Table, TableBody, TableCell,
+  TableContainer, TableHead, TableRow, Collapse, Paper, InputAdornment, FormControl,
+  InputLabel, Select, Card, CardContent, useTheme, useMediaQuery, Menu, ListItemIcon, ListItemText,
 } from "@mui/material";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import EditIcon from "@mui/icons-material/Edit";
+import DeleteIcon from "@mui/icons-material/Delete";
 import CloseIcon from "@mui/icons-material/Close";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import SearchIcon from "@mui/icons-material/Search";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
 import AssignmentIndIcon from "@mui/icons-material/AssignmentInd";
-import axios from "axios";
-
-const CLOUDINARY_URL = "https://api.cloudinary.com/v1_1/diogwsroa/upload";
-const UPLOAD_PRESET = "helpmate_upload";
+import MoreVertIcon from "@mui/icons-material/MoreVert";
 
 // Blue palette
 const palette = {
@@ -70,6 +68,15 @@ const priorityColorMap = {
   default: { bg: "#e0eafd", color: palette.text },
 };
 
+// File to Base64 conversion
+const toBase64 = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = (error) => reject(error);
+  });
+
 function formatTimeLeft(secondsLeft) {
   if (secondsLeft <= 0) return "BREACHED";
   const h = Math.floor(secondsLeft / 3600);
@@ -78,35 +85,219 @@ function formatTimeLeft(secondsLeft) {
   return `${h > 0 ? `${h}h ` : ""}${m > 0 ? `${m}m ` : ""}${s}s remaining`;
 }
 
+// Modal for zoomed file preview
+const FilePreviewModal = ({ open, onClose, fileUrl, fileType, fileName }) => {
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="lg"
+      fullWidth
+      sx={{
+        "& .MuiDialog-paper": {
+          background: "rgba(0, 0, 0, 0.9)",
+          borderRadius: 2,
+          maxHeight: "90vh",
+          maxWidth: "90vw",
+        },
+      }}
+    >
+      <DialogTitle sx={{ fontFamily: "Outfit", color: "#fff", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        {fileName || "File Preview"}
+        <IconButton
+          aria-label="close"
+          onClick={onClose}
+          sx={{ color: "#fff" }}
+        >
+          <CloseIcon />
+        </IconButton>
+      </DialogTitle>
+      <DialogContent sx={{ display: "flex", justifyContent: "center", alignItems: "center", p: 2 }}>
+        {fileUrl && typeof fileUrl === "string" && fileUrl.startsWith("data:") ? (
+          fileUrl.startsWith("data:application/pdf") ? (
+            <embed
+              src={fileUrl}
+              type="application/pdf"
+              title={fileName || "PDF Preview"}
+              style={{
+                width: "100%",
+                height: "80vh",
+                maxHeight: "90vh",
+                borderRadius: 8,
+                border: "1px solid #b3c7e6",
+              }}
+            />
+          ) : (
+            <img
+              src={fileUrl}
+              alt={fileName || "attachment"}
+              style={{
+                maxWidth: "100%",
+                maxHeight: "80vh",
+                objectFit: "contain",
+                borderRadius: 8,
+                border: "1px solid #b3c7e6",
+              }}
+            />
+          )
+        ) : (
+          <Typography sx={{ fontFamily: "Outfit", color: "#fff" }}>
+            Unable to preview this file type. Please download to view.
+          </Typography>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button
+          href={fileUrl}
+          download={fileName || "attachment"}
+          sx={{ fontFamily: "Outfit", color: "#fff", textTransform: "none" }}
+        >
+          Download
+        </Button>
+        <Button
+          onClick={onClose}
+          sx={{ fontFamily: "Outfit", color: "#fff", textTransform: "none" }}
+        >
+          Close
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+};
+
+// Helper for file preview
+const FilePreview = ({ fileUrl, fileType, fileName }) => {
+  const [modalOpen, setModalOpen] = useState(false);
+
+  const handleOpenModal = () => {
+    if (fileUrl && typeof fileUrl === "string" && fileUrl.startsWith("data:")) {
+      if (
+        fileUrl.startsWith("data:application/pdf") ||
+        fileUrl.startsWith("data:image/png") ||
+        fileUrl.startsWith("data:image/jpeg") ||
+        fileUrl.startsWith("data:image/webp")
+      ) {
+        setModalOpen(true);
+      }
+    }
+  };
+
+  const handleCloseModal = () => {
+    setModalOpen(false);
+  };
+
+  if (!fileUrl) return null;
+  if (typeof fileUrl === "string" && fileUrl.startsWith("data:")) {
+    if (fileUrl.startsWith("data:application/pdf")) {
+      return (
+        <>
+          <Box sx={{ mt: 1, cursor: "pointer" }} onClick={handleOpenModal}>
+            <Typography sx={{ fontFamily: "Outfit", color: palette.accentDark, fontSize: "0.9rem" }}>
+              <strong>Preview (click to zoom):</strong>
+            </Typography>
+            <embed
+              src={fileUrl}
+              type="application/pdf"
+              width="100%"
+              height="300px"
+              style={{ borderRadius: 8, border: "1px solid #b3c7e6" }}
+            />
+            <Box sx={{ mt: 1 }}>
+              <a href={fileUrl} download={fileName || "attachment.pdf"} style={{ color: palette.accent, textDecoration: "underline" }}>
+                Download PDF
+              </a>
+            </Box>
+          </Box>
+          <FilePreviewModal
+            open={modalOpen}
+            onClose={handleCloseModal}
+            fileUrl={fileUrl}
+            fileType={fileType}
+            fileName={fileName}
+          />
+        </>
+      );
+    } else if (
+      fileUrl.startsWith("data:image/png") ||
+      fileUrl.startsWith("data:image/jpeg") ||
+      fileUrl.startsWith("data:image/webp")
+    ) {
+      return (
+        <>
+          <Box sx={{ mt: 1, cursor: "pointer" }} onClick={handleOpenModal}>
+            <Typography sx={{ fontFamily: "Outfit", color: palette.accentDark, fontSize: "0.9rem" }}>
+              <strong>Preview (click to zoom):</strong>
+            </Typography>
+            <img
+              src={fileUrl}
+              alt={fileName || "attachment"}
+              style={{
+                maxWidth: "100%",
+                maxHeight: 300,
+                borderRadius: 8,
+                border: "1px solid #b3c7e6",
+              }}
+            />
+            <Box sx={{ mt: 1 }}>
+              <a href={fileUrl} download={fileName || "attachment"} style={{ color: palette.accent, textDecoration: "underline" }}>
+                Download Image
+              </a>
+            </Box>
+          </Box>
+          <FilePreviewModal
+            open={modalOpen}
+            onClose={handleCloseModal}
+            fileUrl={fileUrl}
+            fileType={fileType}
+            fileName={fileName}
+          />
+        </>
+      );
+    }
+  }
+  return (
+    <Box sx={{ mt: 1 }}>
+      <a
+        href={fileUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{ color: palette.accent, textDecoration: "underline" }}
+      >
+        View/Download Attachment
+      </a>
+    </Box>
+  );
+};
+
 const ViewTickets = ({ username }) => {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expandedTicketId, setExpandedTicketId] = useState(null);
-  const [editingTicketId, setEditingTicketId] = useState(null);
-  const [editForm, setEditForm] = useState({
-    ticketId: "",
-    type: "",
-    problem: "",
-    department: "",
-    description: "",
-    file: null,
-    fileUrl: "",
-  });
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [sortBy, setSortBy] = useState("newToOld");
-  const [timerTick, setTimerTick] = useState(0); // timer for countdown
+  const [timerTick, setTimerTick] = useState(0);
+  const [anchorEl, setAnchorEl] = useState(null);
+  const [selectedTicket, setSelectedTicket] = useState(null);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editForm, setEditForm] = useState({
+    ticketId: "",
+    problem: "",
+    type: "",
+    description: "",
+    file: null,
+    fileUrl: "",
+    fileName: "",
+  });
 
   const theme = useTheme();
   const isSmallScreen = useMediaQuery(theme?.breakpoints?.down("sm") ?? ((theme) => theme.breakpoints.down("sm")));
 
   useEffect(() => {
     fetchTickets();
-    // eslint-disable-next-line
   }, [username]);
 
-  // For updating countdown every second
   useEffect(() => {
     const timer = setInterval(() => setTimerTick((tick) => tick + 1), 1000);
     return () => clearInterval(timer);
@@ -115,15 +306,14 @@ const ViewTickets = ({ username }) => {
   const fetchTickets = async () => {
     setLoading(true);
     if (!username) {
+      setError("No username provided.");
       setLoading(false);
       return;
     }
-
     try {
       const ticketsRef = collection(db, "tickets");
       const q = query(ticketsRef, where("createdBy", "==", username));
       const querySnapshot = await getDocs(q);
-      // Automatically map status to "Assigned" if assignedAgent is set and status is not closed
       const data = querySnapshot.docs.map((doc) => {
         const d = doc.data();
         let status = d.status;
@@ -133,8 +323,9 @@ const ViewTickets = ({ username }) => {
         return { id: doc.id, ...d, status };
       });
       setTickets(data);
+      setError("");
     } catch (error) {
-      setError("Failed to fetch tickets.");
+      setError(`Failed to fetch tickets: ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -144,139 +335,144 @@ const ViewTickets = ({ username }) => {
     setExpandedTicketId(expandedTicketId === id ? null : id);
   };
 
-  const handleEdit = (ticket) => {
-    setEditingTicketId(ticket.id);
+  const handleMenuClick = (event, ticket) => {
+    setAnchorEl(event.currentTarget);
+    setSelectedTicket(ticket);
+  };
+
+  const handleMenuClose = () => {
+    setAnchorEl(null);
+    setSelectedTicket(null);
+  };
+
+  const handleEditOpen = () => {
+    if (selectedTicket) {
+      setEditForm({
+        ticketId: selectedTicket.ticketId || "",
+        problem: selectedTicket.problem || "",
+        type: selectedTicket.type || "",
+        description: selectedTicket.description || "",
+        file: null,
+        fileUrl: selectedTicket.fileUrl || "",
+        fileName: selectedTicket.fileName || "",
+      });
+      setEditDialogOpen(true);
+      setAnchorEl(null); // Close menu without clearing selectedTicket
+    }
+  };
+
+  const handleEditClose = () => {
+    setEditDialogOpen(false);
     setEditForm({
-      ticketId: ticket.ticketId,
-      type: ticket.type || "",
-      problem: ticket.problem || "",
-      department: ticket.department || "",
-      description: ticket.description || "",
+      ticketId: "",
+      problem: "",
+      type: "",
+      description: "",
       file: null,
-      fileUrl: ticket.fileUrl || "",
+      fileUrl: "",
+      fileName: "",
     });
     setError("");
-    setSuccessMessage("");
+    setSelectedTicket(null); // Clear selectedTicket when closing dialog
   };
 
-  const handleEditFormChange = (field, value) => {
-    setEditForm((prev) => ({ ...prev, [field]: value }));
-  };
-
-  const handleFileChange = (e) => {
-    const selectedFile = e.target.files[0];
-    if (selectedFile) {
-      const maxSize = 10 * 1024 * 1024; // 10MB
-      const allowedTypes = ["image/png", "image/jpeg", "image/webp", "application/pdf"];
-      if (selectedFile.size > maxSize) {
-        setError("File size exceeds 10MB limit.");
-        setEditForm((prev) => ({ ...prev, file: null }));
-        return;
-      }
-      if (!allowedTypes.includes(selectedFile.type)) {
-        setError("Only PNG, JPG, JPEG, WEBP, and PDF files are allowed.");
-        setEditForm((prev) => ({ ...prev, file: null }));
-        return;
-      }
-      setError("");
-      setEditForm((prev) => ({ ...prev, file: selectedFile }));
-    }
-  };
-
-  const handleEditSubmit = async (e) => {
-    e.preventDefault();
-    if (editForm.problem.length > 100) {
-      setError("Problem title must be 100 characters or less.");
+  const handleEditSubmit = async () => {
+    if (!selectedTicket) {
+      setError("No ticket selected to update. Please reopen the edit dialog and try again.");
       return;
     }
-    if (editForm.department.length > 50) {
-      setError("Department name must be 50 characters or less.");
+    if (!editForm.problem || !editForm.type || !editForm.description) {
+      setError("Please fill in all required fields (Problem, Type, Description).");
       return;
     }
 
     try {
       let fileUrl = editForm.fileUrl;
-      if (editForm.file) {
-        const formData = new FormData();
-        formData.append("file", editForm.file);
-        formData.append("upload_preset", UPLOAD_PRESET);
-        formData.append("resource_type", "auto");
+      let fileType = selectedTicket?.fileType || "";
+      let fileName = editForm.fileName;
 
-        const uploadResponse = await axios.post(CLOUDINARY_URL, formData, { timeout: 30000 });
-        if (!uploadResponse.data.secure_url) {
-          throw new Error("File upload failed: No secure_url returned.");
+      if (editForm.file) {
+        const fileSize = editForm.file.size;
+        const allowedTypes = ["image/png", "image/jpeg", "image/webp", "application/pdf"];
+        if (!allowedTypes.includes(editForm.file.type)) {
+          setError("Only PNG, JPG, JPEG, WEBP, and PDF files are supported.");
+          return;
         }
-        fileUrl = uploadResponse.data.secure_url;
+        if (fileSize > 750 * 1024) {
+          setError("File size exceeds 750KB limit.");
+          return;
+        }
+        fileUrl = await toBase64(editForm.file);
+        fileType = editForm.file.type;
+        fileName = editForm.file.name;
       }
 
-      const updatedTicketData = {
+      const ticketData = {
         ticketId: editForm.ticketId,
-        type: editForm.type,
         problem: editForm.problem,
-        department: editForm.department,
+        type: editForm.type,
         description: editForm.description,
-        fileUrl,
+        fileUrl: fileUrl || "",
+        fileName: fileName || "",
+        fileType: fileType || "",
         createdBy: username,
-        createdAt: Timestamp.now(),
-        status: "Pending",
+        createdAt: selectedTicket?.createdAt || Timestamp.now(),
+        status: selectedTicket?.status || "Pending",
+        assignedAgent: selectedTicket?.assignedAgent || null,
+        responseTime: selectedTicket?.responseTime || null,
+        resolutionTime: selectedTicket?.resolutionTime || null,
+        assignedAt: selectedTicket?.assignedAt || null,
+        department: selectedTicket?.department || null,
+        priority: selectedTicket?.priority || null,
       };
 
-      await setDoc(doc(db, "tickets", editingTicketId), updatedTicketData, { merge: false });
-
+      await setDoc(doc(db, "tickets", selectedTicket.id), ticketData, { merge: true });
       setSuccessMessage("Ticket updated successfully!");
-      setEditingTicketId(null);
+      setEditDialogOpen(false);
       setEditForm({
         ticketId: "",
-        type: "",
         problem: "",
-        department: "",
+        type: "",
         description: "",
         file: null,
         fileUrl: "",
+        fileName: "",
       });
-      setError("");
-      fetchTickets();
-      setTimeout(() => setSuccessMessage(""), 5000);
+      await fetchTickets();
+      setSelectedTicket(null); // Clear selectedTicket after successful update
     } catch (error) {
-      setError(`Error updating ticket: ${error.message}`);
+      console.error("Error updating ticket:", error);
+      setError(`Failed to update ticket: ${error.message}`);
     }
   };
 
-  const handleCancelEdit = () => {
-    setEditingTicketId(null);
-    setEditForm({
-      ticketId: "",
-      type: "",
-      problem: "",
-      department: "",
-      description: "",
-      file: null,
-      fileUrl: "",
-    });
-    setError("");
-  };
-
-  const getFileTypeLabel = (url) => {
-    if (!url) return "";
-    const extension = url.split(".").pop()?.toLowerCase();
-    switch (extension) {
-      case "pdf":
-        return "(PDF)";
-      case "doc":
-        return "(DOC)";
-      case "docx":
-        return "(DOCX)";
-      default:
-        return "(Image)";
+  const handleDelete = async () => {
+    if (selectedTicket) {
+      try {
+        await deleteDoc(doc(db, "tickets", selectedTicket.id));
+        setSuccessMessage("Ticket deleted successfully!");
+        await fetchTickets();
+      } catch (error) {
+        setError(`Failed to delete ticket: ${error.message}`);
+      }
     }
+    handleMenuClose();
   };
 
-  const isValidUrl = (url) => {
-    try {
-      new URL(url);
-      return true;
-    } catch {
-      return false;
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const allowedTypes = ["image/png", "image/jpeg", "image/webp", "application/pdf"];
+      if (!allowedTypes.includes(file.type)) {
+        setError("Only PNG, JPG, JPEG, WEBP, and PDF files are supported.");
+        return;
+      }
+      if (file.size > 750 * 1024) {
+        setError("File size exceeds 750KB limit.");
+        return;
+      }
+      setEditForm({ ...editForm, file, fileName: file.name });
+      setError("");
     }
   };
 
@@ -317,10 +513,8 @@ const ViewTickets = ({ username }) => {
     };
   };
 
-  // Helper to get countdown seconds
   const getResolutionCountdown = (ticket) => {
     if (!ticket.assignedAgent || !ticket.resolutionTime) return null;
-    // Use assignedAt if present, else createdAt
     const assignedAt = ticket.assignedAt
       ? (ticket.assignedAt.seconds ? new Date(ticket.assignedAt.seconds * 1000) : new Date(ticket.assignedAt))
       : ticket.createdAt && ticket.createdAt.seconds
@@ -443,6 +637,7 @@ const ViewTickets = ({ username }) => {
             fontSize: { xs: "0.8rem", sm: "0.875rem" },
             borderRadius: 2,
           }}
+          onClose={() => setSuccessMessage("")}
         >
           {successMessage}
         </Alert>
@@ -459,6 +654,7 @@ const ViewTickets = ({ username }) => {
             fontSize: { xs: "0.8rem", sm: "0.875rem" },
             borderRadius: 2,
           }}
+          onClose={() => setError("")}
         >
           {error}
         </Alert>
@@ -511,6 +707,7 @@ const ViewTickets = ({ username }) => {
               };
               const priorityInfo = getPriorityInfo(ticket.priority);
               const countdown = getResolutionCountdown(ticket);
+              const canEdit = ticket.status === "Pending";
 
               return (
                 <Card
@@ -530,18 +727,48 @@ const ViewTickets = ({ username }) => {
                       >
                         {ticket.problem || "Untitled"}
                       </Typography>
-                      <IconButton
-                        onClick={() => handleToggle(ticket.id)}
-                        sx={{ color: palette.accent }}
-                        aria-label={`Toggle details for ticket ${ticket.ticketId}`}
-                        aria-expanded={expandedTicketId === ticket.id}
-                      >
-                        {expandedTicketId === ticket.id ? (
-                          <ExpandLessIcon sx={{ fontSize: { xs: "1.2rem", sm: "1.5rem" } }} />
-                        ) : (
-                          <ExpandMoreIcon sx={{ fontSize: { xs: "1.2rem", sm: "1.5rem" } }} />
-                        )}
-                      </IconButton>
+                      <Box>
+                        <IconButton
+                          onClick={(e) => handleMenuClick(e, ticket)}
+                          sx={{ color: palette.accent }}
+                          aria-label={`Open menu for ticket ${ticket.ticketId}`}
+                        >
+                          <MoreVertIcon sx={{ fontSize: { xs: "1.2rem", sm: "1.5rem" } }} />
+                        </IconButton>
+                        <Menu
+                          anchorEl={anchorEl}
+                          open={Boolean(anchorEl) && selectedTicket?.id === ticket.id}
+                          onClose={handleMenuClose}
+                          PaperProps={{
+                            sx: { borderRadius: 2 },
+                          }}
+                        >
+                          <MenuItem onClick={handleEditOpen} disabled={!canEdit}>
+                            <ListItemIcon>
+                              <EditIcon fontSize="small" />
+                            </ListItemIcon>
+                            <ListItemText primary="Edit" />
+                          </MenuItem>
+                          <MenuItem onClick={handleDelete} disabled={!canEdit}>
+                            <ListItemIcon>
+                              <DeleteIcon fontSize="small" />
+                            </ListItemIcon>
+                            <ListItemText primary="Delete" />
+                          </MenuItem>
+                        </Menu>
+                        <IconButton
+                          onClick={() => handleToggle(ticket.id)}
+                          sx={{ color: palette.accent }}
+                          aria-label={`Toggle details for ticket ${ticket.ticketId}`}
+                          aria-expanded={expandedTicketId === ticket.id}
+                        >
+                          {expandedTicketId === ticket.id ? (
+                            <ExpandLessIcon sx={{ fontSize: { xs: "1.2rem", sm: "1.5rem" } }} />
+                          ) : (
+                            <ExpandMoreIcon sx={{ fontSize: { xs: "1.2rem", sm: "1.5rem" } }} />
+                          )}
+                        </IconButton>
+                      </Box>
                     </Box>
                     <Box sx={{ mb: 1 }}>
                       <Box
@@ -580,25 +807,12 @@ const ViewTickets = ({ username }) => {
                     <Typography sx={{ fontFamily: "Outfit", color: palette.text, fontSize: { xs: "0.85rem", sm: "0.9rem" } }}>
                       <strong>Ticket ID:</strong> {ticket.ticketId}
                     </Typography>
-                    <Typography sx={{ fontFamily: "Outfit", color: palette.text, fontSize: { xs: "0.85rm", sm: "0.9rem" } }}>
+                    <Typography sx={{ fontFamily: "Outfit", color: palette.text, fontSize: { xs: "0.85rem", sm: "0.9rem" } }}>
                       <strong>Created:</strong>{" "}
                       {ticket.createdAt?.seconds
                         ? new Date(ticket.createdAt.seconds * 1000).toLocaleString()
                         : "N/A"}
                     </Typography>
-                    {ticket.status === "Pending" && (
-                      <Box sx={{ mt: 1, textAlign: "right" }}>
-                        <Tooltip title="Edit ticket">
-                          <IconButton
-                            onClick={() => handleEdit(ticket)}
-                            sx={{ color: palette.accent }}
-                            aria-label={`Edit ticket ${ticket.ticketId}`}
-                          >
-                            <EditIcon sx={{ fontSize: { xs: "1.2rem", sm: "1.5rem" } }} />
-                          </IconButton>
-                        </Tooltip>
-                      </Box>
-                    )}
                     <Collapse in={expandedTicketId === ticket.id} timeout="auto" unmountOnExit>
                       <Box sx={{ mt: 2, p: 1.5, background: palette.accentLight, borderRadius: 1 }}>
                         <Stack spacing={1}>
@@ -617,16 +831,7 @@ const ViewTickets = ({ username }) => {
                             </Typography>
                           )}
                           {ticket.fileUrl && (
-                            <Typography sx={{ fontFamily: "Outfit", color: palette.accentDark, fontSize: { xs: "0.85rem", sm: "0.9rem" } }}>
-                              <strong>Attachment:</strong>{" "}
-                              {isValidUrl(ticket.fileUrl) ? (
-                                <a href={ticket.fileUrl} target="_blank" rel="noopener noreferrer" style={{ color: palette.accent, textDecoration: "underline" }}>
-                                  View/Download File {getFileTypeLabel(ticket.fileUrl)}
-                                </a>
-                              ) : (
-                                <span style={{ color: "#d32f2f" }}>Invalid or inaccessible file URL</span>
-                              )}
-                            </Typography>
+                            <FilePreview fileUrl={ticket.fileUrl} fileType={ticket.fileType} fileName={ticket.fileName} />
                           )}
                           <Typography sx={{ fontFamily: "Outfit", color: palette.accentDark, fontSize: { xs: "0.85rem", sm: "0.9rem" } }}>
                             <strong>Assigned Agent:</strong> {ticket.assignedAgent ? (
@@ -641,11 +846,11 @@ const ViewTickets = ({ username }) => {
                           </Typography>
                           {ticket.assignedAgent && ticket.resolutionTime && (
                             <Typography sx={{ fontFamily: "Outfit", color: palette.accentDark, fontSize: { xs: "0.85rem", sm: "0.9rem" } }}>
-                              <strong>Resolution SLA:</strong> {ticket.resolutionTime ? `${ticket.resolutionTime}` : "N/A"}
+                              <strong>Resolution SLA:</strong> {ticket.resolutionTime || "N/A"}
                             </Typography>
                           )}
                           {ticket.assignedAgent && ticket.resolutionTime && (
-                            <Typography sx={{ fontFamily: "Outfit", color: countdown && countdown.secondsLeft <= 0 ? "#d32f2f" : palette.accent, fontWeight: 600, fontSize: { xs: "0.9rem", sm: "1rem" } }}>
+                            <Typography sx={{ fontFamily: "Outfit", color: palette.accent, fontWeight: 600, fontSize: { xs: "0.9rem", sm: "1rem" } }}>
                               <AccessTimeIcon fontSize="small" sx={{ verticalAlign: "middle", mr: 0.5 }} />
                               {countdown ? formatTimeLeft(countdown.secondsLeft) : "N/A"}
                             </Typography>
@@ -719,6 +924,8 @@ const ViewTickets = ({ username }) => {
                   };
                   const priorityInfo = getPriorityInfo(ticket.priority);
                   const countdown = getResolutionCountdown(ticket);
+                  const canEdit = ticket.status === "Pending";
+
                   return (
                     <React.Fragment key={ticket.id}>
                       <TableRow
@@ -796,17 +1003,34 @@ const ViewTickets = ({ username }) => {
                             : "N/A"}
                         </TableCell>
                         <TableCell sx={{ width: 48 }}>
-                          {ticket.status === "Pending" && (
-                            <Tooltip title="Edit ticket">
-                              <IconButton
-                                onClick={() => handleEdit(ticket)}
-                                sx={{ color: palette.accent }}
-                                aria-label={`Edit ticket ${ticket.ticketId}`}
-                              >
-                                <EditIcon sx={{ fontSize: { xs: "1.2rem", sm: "1.5rem" } }} />
-                              </IconButton>
-                            </Tooltip>
-                          )}
+                          <IconButton
+                            onClick={(e) => handleMenuClick(e, ticket)}
+                            sx={{ color: palette.accent }}
+                            aria-label={`Open menu for ticket ${ticket.ticketId}`}
+                          >
+                            <MoreVertIcon sx={{ fontSize: { xs: "1.2rem", sm: "1.5rem" } }} />
+                          </IconButton>
+                          <Menu
+                            anchorEl={anchorEl}
+                            open={Boolean(anchorEl) && selectedTicket?.id === ticket.id}
+                            onClose={handleMenuClose}
+                            PaperProps={{
+                              sx: { borderRadius: 2 },
+                            }}
+                          >
+                            <MenuItem onClick={handleEditOpen} disabled={!canEdit}>
+                              <ListItemIcon>
+                                <EditIcon fontSize="small" />
+                              </ListItemIcon>
+                              <ListItemText primary="Edit" />
+                            </MenuItem>
+                            <MenuItem onClick={handleDelete} disabled={!canEdit}>
+                              <ListItemIcon>
+                                <DeleteIcon fontSize="small" />
+                              </ListItemIcon>
+                              <ListItemText primary="Delete" />
+                            </MenuItem>
+                          </Menu>
                         </TableCell>
                       </TableRow>
                       <TableRow>
@@ -829,21 +1053,7 @@ const ViewTickets = ({ username }) => {
                                   </Typography>
                                 )}
                                 {ticket.fileUrl && (
-                                  <Typography sx={{ fontFamily: "Outfit", color: palette.accentDark, fontSize: { xs: "0.85rm", sm: "0.9rem", md: "1rem" } }}>
-                                    <strong>Attachment:</strong>{" "}
-                                    {isValidUrl(ticket.fileUrl) ? (
-                                      <a
-                                        href={ticket.fileUrl}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        style={{ color: palette.accent, textDecoration: "underline" }}
-                                      >
-                                        View/Download File {getFileTypeLabel(ticket.fileUrl)}
-                                      </a>
-                                    ) : (
-                                      <span style={{ color: "#d32f2f" }}>Invalid or inaccessible file URL</span>
-                                    )}
-                                  </Typography>
+                                  <FilePreview fileUrl={ticket.fileUrl} fileType={ticket.fileType} fileName={ticket.fileName} />
                                 )}
                                 <Typography sx={{ fontFamily: "Outfit", color: palette.accentDark, fontSize: { xs: "0.85rem", sm: "0.9rem", md: "1rem" } }}>
                                   <strong>Assigned Agent:</strong> {ticket.assignedAgent ? (
@@ -862,25 +1072,9 @@ const ViewTickets = ({ username }) => {
                                   </Typography>
                                 )}
                                 {ticket.assignedAgent && ticket.resolutionTime && (
-                                  <Typography sx={{ fontFamily: "Outfit", color: countdown && countdown.secondsLeft <= 0 ? "#d32f2f" : palette.accent, fontWeight: 600, fontSize: { xs: "0.9rem", sm: "1rem" } }}>
+                                  <Typography sx={{ fontFamily: "Outfit", color: palette.accent, fontWeight: 600, fontSize: { xs: "0.9rem", sm: "1rem" } }}>
                                     <AccessTimeIcon fontSize="small" sx={{ verticalAlign: "middle", mr: 0.5 }} />
                                     {countdown ? formatTimeLeft(countdown.secondsLeft) : "N/A"}
-                                  </Typography>
-                                )}
-                                {ticket.firstResponseAt && (
-                                  <Typography sx={{ fontFamily: "Outfit", color: palette.accentDark, fontSize: { xs: "0.85rem", sm: "0.9rem", md: "1rem" } }}>
-                                    <strong>First Response At:</strong>{" "}
-                                    {ticket.firstResponseAt?.seconds
-                                      ? new Date(ticket.firstResponseAt.seconds * 1000).toLocaleString()
-                                      : ticket.firstResponseAt}
-                                  </Typography>
-                                )}
-                                {ticket.updatedAt && (
-                                  <Typography sx={{ fontFamily: "Outfit", color: palette.accentDark, fontSize: { xs: "0.85rem", sm: "0.9rem", md: "1rem" } }}>
-                                    <strong>Last Updated:</strong>{" "}
-                                    {ticket.updatedAt?.seconds
-                                      ? new Date(ticket.updatedAt.seconds * 1000).toLocaleString()
-                                      : ticket.updatedAt}
                                   </Typography>
                                 )}
                               </Stack>
@@ -898,276 +1092,106 @@ const ViewTickets = ({ username }) => {
       )}
 
       <Dialog
-        open={editingTicketId !== null}
-        onClose={handleCancelEdit}
+        open={editDialogOpen}
+        onClose={handleEditClose}
         maxWidth="sm"
         fullWidth
         TransitionComponent={Fade}
-        transitionDuration={600}
-        sx={{
-          "& .MuiDialog-paper": {
-            borderRadius: "16px",
-            backgroundColor: "#f0f6ff",
-            boxShadow: "0 8px 24px #bdd3f8",
-            maxWidth: { xs: "90%", sm: 500 },
-          },
-          "& .MuiBackdrop-root": {
-            backgroundColor: "rgba(0, 0, 0, 0.5)",
-          },
-        }}
-        aria-labelledby="edit-ticket-dialog-title"
-        aria-describedby="edit-ticket-dialog-description"
+        transitionDuration={300}
       >
-        <DialogTitle
-          id="edit-ticket-dialog-title"
-          sx={{
-            fontFamily: "Outfit",
-            color: palette.accent,
-            fontWeight: 600,
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            bgcolor: palette.headerBg,
-            borderRadius: "16px 16px 0 0",
-            fontSize: { xs: "1.25rem", sm: "1.5rem" },
-            py: { xs: 1.5, sm: 2 },
-          }}
-        >
+        <DialogTitle sx={{ fontFamily: "Outfit", color: palette.accent, fontWeight: 600 }}>
           Edit Ticket
           <IconButton
-            onClick={handleCancelEdit}
-            sx={{ color: palette.accent }}
-            aria-label="Close edit dialog"
+            aria-label="close"
+            onClick={handleEditClose}
+            sx={{ position: "absolute", right: 8, top: 8, color: palette.accent }}
           >
-            <CloseIcon sx={{ fontSize: { xs: "1.2rem", sm: "1.5rem" } }} />
+            <CloseIcon />
           </IconButton>
         </DialogTitle>
-        <DialogContent sx={{ p: { xs: 2, sm: 3 } }}>
-          <form onSubmit={handleEditSubmit}>
-            <Typography sx={{ mb: 0.5, fontWeight: 500, fontFamily: "Outfit", color: palette.accentDark, fontSize: { xs: "0.85rem", sm: "0.9rem" } }}>
-              Ticket ID
-            </Typography>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField
+              label="Ticket ID"
               value={editForm.ticketId}
+              onChange={(e) => setEditForm({ ...editForm, ticketId: e.target.value })}
+              fullWidth
+              variant="outlined"
+              size="small"
+              sx={{ fontFamily: "Outfit" }}
               disabled
-              fullWidth
-              sx={{ mb: 2 }}
-              InputProps={{
-                sx: {
-                  fontFamily: "Outfit",
-                  color: palette.accentDark,
-                  fontSize: { xs: "0.85rem", sm: "0.9rem" },
-                },
-              }}
-              variant="outlined"
-              inputProps={{ "aria-label": "Ticket ID (disabled)" }}
             />
-
-            <Typography sx={{ mb: 0.5, fontWeight: 500, fontFamily: "Outfit", color: palette.accentDark, fontSize: { xs: "0.85rem", sm: "0.9rem" } }}>
-              Problem Title
-            </Typography>
             <TextField
+              label="Problem Title"
               value={editForm.problem}
-              onChange={(e) => handleEditFormChange("problem", e.target.value)}
+              onChange={(e) => setEditForm({ ...editForm, problem: e.target.value })}
               fullWidth
-              required
-              sx={{ mb: 2 }}
-              InputProps={{
-                sx: {
-                  fontFamily: "Outfit",
-                  color: palette.accentDark,
-                  fontSize: { xs: "0.85rem", sm: "0.9rem" },
-                },
-              }}
               variant="outlined"
-              inputProps={{ maxLength: 100, "aria-label": "Problem Title" }}
-              aria-describedby={error && error.includes("Problem title") ? "edit-error-message" : undefined}
+              size="small"
+              sx={{ fontFamily: "Outfit" }}
+              required
             />
-
-            <Typography sx={{ mb: 0.5, fontWeight: 500, fontFamily: "Outfit", color: palette.accentDark, fontSize: { xs: "0.85rem", sm: "0.9rem" } }}>
-              Type of Problem
-            </Typography>
             <TextField
-              select
+              label="Type"
               value={editForm.type}
-              onChange={(e) => handleEditFormChange("type", e.target.value)}
+              onChange={(e) => setEditForm({ ...editForm, type: e.target.value })}
               fullWidth
-              required
-              sx={{ mb: 2 }}
-              InputProps={{
-                sx: {
-                  fontFamily: "Outfit",
-                  color: palette.accentDark,
-                  fontSize: { xs: "0.85rem", sm: "0.9rem" },
-                },
-              }}
               variant="outlined"
-              inputProps={{ "aria-label": "Type of Problem" }}
-            >
-              <MenuItem value="Software" sx={{ fontFamily: "Outfit", fontSize: { xs: "0.85rem", sm: "0.9rem" } }}>
-                Software
-              </MenuItem>
-              <MenuItem value="Hardware" sx={{ fontFamily: "Outfit", fontSize: { xs: "0.85rem", sm: "0.9rem" } }}>
-                Hardware
-              </MenuItem>
-            </TextField>
-
-            <Typography sx={{ mb: 0.5, fontWeight: 500, fontFamily: "Outfit", color: palette.accentDark, fontSize: { xs: "0.85rem", sm: "0.9rem" } }}>
-              Department
-            </Typography>
-            <TextField
-              value={editForm.department}
-              onChange={(e) => handleEditFormChange("department", e.target.value)}
-              fullWidth
+              size="small"
+              sx={{ fontFamily: "Outfit" }}
               required
-              sx={{ mb: 2 }}
-              InputProps={{
-                sx: {
-                  fontFamily: "Outfit",
-                  color: palette.accentDark,
-                  fontSize: { xs: "0.85rem", sm: "0.9rem" },
-                },
-              }}
-              variant="outlined"
-              inputProps={{ maxLength: 50, "aria-label": "Department" }}
-              aria-describedby={error && error.includes("Department name") ? "edit-error-message" : undefined}
             />
-
-            <Typography sx={{ mb: 0.5, fontWeight: 500, fontFamily: "Outfit", color: palette.accentDark, fontSize: { xs: "0.85rem", sm: "0.9rem" } }}>
-              Description
-            </Typography>
             <TextField
+              label="Description"
               value={editForm.description}
-              onChange={(e) => handleEditFormChange("description", e.target.value)}
-              multiline
-              rows={isSmallScreen ? 3 : 4}
+              onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
               fullWidth
+              variant="outlined"
+              size="small"
+              multiline
+              rows={4}
+              sx={{ fontFamily: "Outfit" }}
               required
-              sx={{ mb: 2 }}
-              InputProps={{
-                sx: {
-                  fontFamily: "Outfit",
-                  color: palette.accentDark,
-                  fontSize: { xs: "0.85rem", sm: "0.9rem" },
-                },
-              }}
-              variant="outlined"
-              inputProps={{ maxLength: 500, "aria-label": "Description" }}
-              aria-describedby={error ? "edit-error-message" : undefined}
             />
-
-            <Typography sx={{ mb: 1, fontWeight: 500, fontFamily: "Outfit", color: palette.accentDark, fontSize: { xs: "0.85rem", sm: "0.9rem" } }}>
-              Attach PNG, JPG, JPEG, WEBP, or PDF (replaces existing file)
-            </Typography>
-            <Button
-              variant="outlined"
-              component="label"
-              sx={{
-                fontFamily: "Outfit",
-                color: palette.accent,
-                borderColor: palette.accent,
-                borderRadius: "8px",
-                textTransform: "none",
-                py: 1,
-                px: { xs: 1.5, sm: 2 },
-                mb: 2,
-                "&:hover": {
-                  borderColor: palette.accentDark,
-                  bgcolor: palette.headerBg,
-                },
-                fontSize: { xs: "0.85rem", sm: "0.9rem" },
-                minHeight: 48,
-              }}
-              aria-label="Choose file to upload"
-            >
-              {editForm.file ? editForm.file.name : "Choose File"}
+            <Box>
+              <Typography sx={{ fontFamily: "Outfit", color: palette.accentDark, fontSize: "0.9rem", mb: 1 }}>
+                Upload File (Optional)
+              </Typography>
               <input
                 type="file"
                 accept="image/png,image/jpeg,image/webp,application/pdf"
-                hidden
                 onChange={handleFileChange}
-                aria-describedby={error && error.includes("File") ? "edit-error-message" : undefined}
+                style={{ display: "block", marginBottom: 8 }}
               />
-            </Button>
-            {editForm.fileUrl && (
-              <Typography
-                sx={{
-                  mb: 2,
-                  fontFamily: "Outfit",
-                  color: palette.accent,
-                  fontSize: { xs: "0.85rem", sm: "0.9rem" },
-                }}
-              >
-                Current file:{" "}
-                <a
-                  href={editForm.fileUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ color: palette.accentDark, textDecoration: "underline" }}
-                >
-                  View Current File {getFileTypeLabel(editForm.fileUrl)}
-                </a>
+              <Typography sx={{ fontFamily: "Outfit", color: palette.accentDark, fontSize: "0.8rem" }}>
+                Maximum file size allowed: <strong>750KB</strong><br />
+                Only PNG, JPG, JPEG, WEBP, and PDF files are supported.
               </Typography>
-            )}
-
-            {error && (
-              <Alert
-                severity="error"
-                sx={{
-                  mb: 2,
-                  fontFamily: "Outfit",
-                  borderRadius: "8px",
-                  bgcolor: "#e3e7ff",
-                  color: palette.accentDark,
-                  fontSize: { xs: "0.8rem", sm: "0.875rem" },
-                }}
-                id="edit-error-message"
-              >
-                {error}
-              </Alert>
-            )}
-
-            <Box sx={{ display: "flex", justifyContent: "center", gap: 2, mt: 2 }}>
-              <Button
-                type="submit"
-                variant="contained"
-                sx={{
-                  backgroundColor: palette.accent,
-                  color: "#fff",
-                  fontFamily: "Outfit",
-                  borderRadius: "8px",
-                  px: { xs: 3, sm: 4 },
-                  py: 1,
-                  boxShadow: "none",
-                  "&:hover": { backgroundColor: palette.accentDark },
-                  fontSize: { xs: "0.85rem", sm: "0.9rem" },
-                  minHeight: 48,
-                }}
-                aria-label="Save ticket changes"
-              >
-                Save Changes
-              </Button>
-              <Button
-                variant="outlined"
-                onClick={handleCancelEdit}
-                sx={{
-                  color: palette.accent,
-                  borderColor: palette.accent,
-                  fontFamily: "Outfit",
-                  borderRadius: "8px",
-                  px: { xs: 3, sm: 4 },
-                  py: 1,
-                  "&:hover": { borderColor: palette.accentDark, bgcolor: palette.headerBg },
-                  fontSize: { xs: "0.85rem", sm: "0.9rem" },
-                  minHeight: 48,
-                }}
-                aria-label="Cancel edit"
-              >
-                Cancel
-              </Button>
+              {editForm.fileUrl && (
+                <FilePreview fileUrl={editForm.fileUrl} fileType={selectedTicket?.fileType} fileName={editForm.fileName} />
+              )}
             </Box>
-          </form>
+          </Stack>
         </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={handleEditClose}
+            sx={{ fontFamily: "Outfit", color: palette.accentDark }}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleEditSubmit}
+            variant="contained"
+            sx={{
+              fontFamily: "Outfit",
+              backgroundColor: palette.accent,
+              "&:hover": { backgroundColor: palette.accentDark },
+            }}
+          >
+            Save
+          </Button>
+        </DialogActions>
       </Dialog>
     </Box>
   );

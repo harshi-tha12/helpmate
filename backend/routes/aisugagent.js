@@ -17,8 +17,7 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${GEMINI_API_KEY}`;
-
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`;
 
 // Helper: sleep
 function sleep(ms) {
@@ -57,7 +56,6 @@ async function callGeminiWithRetry(prompt, retries = 3, delay = 1000) {
 
 // Helper: get similarity scores for multiple tickets in one API call
 async function getGeminiSimilarities(currentDescription, pastTickets) {
-  // Construct a single prompt for all tickets
   const prompt = `Compare the current ticket description to each past ticket description. Output a JSON array of objects, each with 'id' (the ticket ID as string) and 'similarity' (number between 0 and 1, where 1 is identical).\n\nCurrent Description: ${currentDescription}\n\nPast Tickets:\n${pastTickets.map(t => `ID: ${t.id}, Description: ${t.description}`).join('\n')}`;
 
   const res = await callGeminiWithRetry(prompt);
@@ -76,7 +74,7 @@ async function getGeminiSimilarities(currentDescription, pastTickets) {
   return [];
 }
 
-router.post('/suggestion', async (req, res) => {
+router.post('/agentsuggestion', async (req, res) => {
   try {
     const { description, organization } = req.body;
     if (!description || !organization) {
@@ -116,7 +114,7 @@ router.post('/suggestion', async (req, res) => {
         const ticket = tickets.find(t => t.id === id);
         return ticket ? { sim: similarity, ticket } : null;
       })
-      .filter(item => item && item.sim > 0.5) // Lowered threshold
+      .filter(item => item && item.sim > 0.5) // Adjustable threshold
       .sort((a, b) => b.sim - a.sim)
       .slice(0, topN);
 

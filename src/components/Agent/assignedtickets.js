@@ -1,48 +1,30 @@
 import React, { useEffect, useState } from "react";
 import {
-  Typography,
-  Box,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Paper,
-  Select,
-  MenuItem,
-  CircularProgress,
-  Alert,
-  Chip,
-  Stack,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogContentText,
-  DialogActions,
-  Button,
-  Divider,
-  TextField,
-  Card,
-  CardContent,
-  Collapse,
-  IconButton,
-  useTheme,
-  useMediaQuery,
+  Typography, Box, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  Paper, Select, MenuItem, CircularProgress, Alert, Chip, Stack, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions,
+  Button, Divider, TextField, Card, CardContent, Collapse, IconButton, useTheme, useMediaQuery, Slider,
 } from "@mui/material";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
-import LightbulbIcon from "@mui/icons-material/Lightbulb";
+import CloseIcon from "@mui/icons-material/Close";
 import { db } from "../../firebase";
-import { getAiSuggestions } from "../../api/aisuggest";
 import { collection, getDocs, query, where, updateDoc, doc, getDoc } from "firebase/firestore";
+import { getAgentSuggestions } from "../../api/agentsuggestion"; // New import
+
+// Blue palette (consistent with TicketDetails.jsx)
+const palette = {
+  accent: "#1976d2",
+  accentDark: "#115293",
+  accentLight: "#e3f2fd",
+  border: "#b3c7e6",
+};
 
 const statusOrder = ["Open", "In Progress", "Resolved", "Closed"];
 const statusColor = {
-  "Open": "info",
+  Open: "info",
   "In Progress": "warning",
-  "Resolved": "success",
-  "Closed": "default"
+  Resolved: "success",
+  Closed: "default",
 };
 
 // Priority color mapping utility
@@ -50,7 +32,7 @@ const priorityColorMap = {
   high: { bg: "#ffebee", color: "#d32f2f" },
   medium: { bg: "#fff8e1", color: "#ff9800" },
   low: { bg: "#e8f5e9", color: "#388e3c" },
-  default: { bg: "#e0eafd", color: "#153570" }
+  default: { bg: "#e0eafd", color: "#153570" },
 };
 const getPriorityInfo = (priority) => {
   let pri = typeof priority === "object" && priority !== null
@@ -62,26 +44,24 @@ const getPriorityInfo = (priority) => {
     label: typeof priority === "object" && priority !== null
       ? priority.priority
       : priority || "N/A",
-    ...priorityColorMap[pri]
+    ...priorityColorMap[pri],
   };
 };
 
 // Utility to format time difference
 const formatTimeDifference = (start, end) => {
   if (!start || !end) return "N/A";
-  
-  // Parse start time (assignedTime could be Firestore Timestamp or string like "24 July 2025 at 19:45:13 UTC+5:30")
+
   let startDate;
   if (typeof start === "string" && start.includes(" at ")) {
     const formattedStart = start.replace(" at ", ", ").replace("UTC+5:30", "+0530");
     startDate = new Date(formattedStart);
   } else if (start.toDate) {
-    startDate = start.toDate(); // Firestore Timestamp
+    startDate = start.toDate();
   } else {
-    startDate = new Date(start); // ISO string or other
+    startDate = new Date(start);
   }
 
-  // Parse end time (closedTime is string like "24 July 2025 at 21:19:28 GMT+5:30")
   const formattedEnd = end.replace(" at ", ", ").replace("GMT+5:30", "+0530");
   const endDate = new Date(formattedEnd);
 
@@ -92,6 +72,222 @@ const formatTimeDifference = (start, end) => {
   const hours = Math.floor(diffMs / (1000 * 60 * 60));
   const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
   return `${hours} hours ${minutes} minutes`;
+};
+
+// Modal for zoomed file preview
+const FilePreviewModal = ({ open, onClose, fileUrl, fileType, fileName }) => {
+  const [zoomLevel, setZoomLevel] = useState(100);
+
+  const handleZoomChange = (event, newValue) => {
+    setZoomLevel(newValue);
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="lg"
+      fullWidth
+      sx={{
+        "& .MuiDialog-paper": {
+          background: "rgba(0, 0, 0, 0.9)",
+          borderRadius: 2,
+          maxHeight: "90vh",
+          maxWidth: "90vw",
+        },
+      }}
+    >
+      <DialogTitle sx={{ fontFamily: "PT Serif", color: "#fff", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        {fileName || "File Preview"}
+        <IconButton
+          aria-label="close"
+          onClick={onClose}
+          sx={{ color: "#fff" }}
+        >
+          <CloseIcon />
+        </IconButton>
+      </DialogTitle>
+      <DialogContent sx={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", p: 2 }}>
+        <Box sx={{ width: "100%", maxWidth: 600, mb: 2 }}>
+          <Typography sx={{ fontFamily: "PT Serif", color: "#fff", fontSize: "0.9rem", mb: 1 }}>
+            Zoom: {zoomLevel}%
+          </Typography>
+          <Slider
+            value={zoomLevel}
+            onChange={handleZoomChange}
+            min={50}
+            max={200}
+            step={10}
+            sx={{
+              color: palette.accent,
+              "& .MuiSlider-thumb": {
+                backgroundColor: "#fff",
+                border: `2px solid ${palette.accent}`,
+              },
+              "& .MuiSlider-rail": {
+                backgroundColor: "#fff",
+              },
+            }}
+            aria-label="Zoom level"
+          />
+        </Box>
+        {fileUrl && typeof fileUrl === "string" && fileUrl.startsWith("data:") ? (
+          fileUrl.startsWith("data:application/pdf") ? (
+            <embed
+              src={fileUrl}
+              type="application/pdf"
+              title={fileName || "PDF Preview"}
+              style={{
+                width: `${zoomLevel}%`,
+                height: `${zoomLevel * 0.8}vh`,
+                maxWidth: "100%",
+                maxHeight: "80vh",
+                borderRadius: 8,
+                border: `1px solid ${palette.border}`,
+              }}
+            />
+          ) : (
+            <img
+              src={fileUrl}
+              alt={fileName || "attachment"}
+              style={{
+                transform: `scale(${zoomLevel / 100})`,
+                maxWidth: "100%",
+                maxHeight: "80vh",
+                objectFit: "contain",
+                borderRadius: 8,
+                border: `1px solid ${palette.border}`,
+                transformOrigin: "center",
+              }}
+            />
+          )
+        ) : (
+          <Typography sx={{ fontFamily: "PT Serif", color: "#fff" }}>
+            Unable to preview this file type. Please download to view.
+          </Typography>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button
+          href={fileUrl}
+          download={fileName || "attachment"}
+          sx={{ fontFamily: "PT Serif", color: "#fff", textTransform: "none" }}
+        >
+          Download
+        </Button>
+        <Button
+          onClick={onClose}
+          sx={{ fontFamily: "PT Serif", color: "#fff", textTransform: "none" }}
+        >
+          Close
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+};
+
+// Helper for file preview
+const FilePreview = ({ fileUrl, fileType, fileName }) => {
+  const [modalOpen, setModalOpen] = useState(false);
+
+  const handleOpenModal = () => {
+    if (fileUrl && typeof fileUrl === "string" && fileUrl.startsWith("data:")) {
+      if (
+        fileUrl.startsWith("data:application/pdf") ||
+        fileUrl.startsWith("data:image/png") ||
+        fileUrl.startsWith("data:image/jpeg") ||
+        fileUrl.startsWith("data:image/webp")
+      ) {
+        setModalOpen(true);
+      }
+    }
+  };
+
+  const handleCloseModal = () => {
+    setModalOpen(false);
+  };
+
+  if (!fileUrl) return null;
+  if (typeof fileUrl === "string" && fileUrl.startsWith("data:")) {
+    if (fileUrl.startsWith("data:application/pdf")) {
+      return (
+        <>
+          <Box sx={{ mt: 1, cursor: "pointer" }} onClick={handleOpenModal}>
+            <Typography sx={{ fontFamily: "PT Serif", color: palette.accentDark, fontSize: "0.9rem" }}>
+              <strong>Preview (click to zoom):</strong>
+            </Typography>
+            <embed
+              src={fileUrl}
+              type="application/pdf"
+              width="100%"
+              height="300px"
+              style={{ borderRadius: 8, border: `1px solid ${palette.border}` }}
+            />
+            <Box sx={{ mt: 1 }}>
+              <a href={fileUrl} download={fileName || "attachment.pdf"} style={{ color: palette.accent, textDecoration: "underline" }}>
+                Download PDF
+              </a>
+            </Box>
+          </Box>
+          <FilePreviewModal
+            open={modalOpen}
+            onClose={handleCloseModal}
+            fileUrl={fileUrl}
+            fileType={fileType}
+            fileName={fileName}
+          />
+        </>
+      );
+    } else if (
+      fileUrl.startsWith("data:image/png") ||
+      fileUrl.startsWith("data:image/jpeg") ||
+      fileUrl.startsWith("data:image/webp")
+    ) {
+      return (
+        <>
+          <Box sx={{ mt: 1, cursor: "pointer" }} onClick={handleOpenModal}>
+            <Typography sx={{ fontFamily: "PT Serif", color: palette.accentDark, fontSize: "0.9rem" }}>
+              <strong>Preview (click to zoom):</strong>
+            </Typography>
+            <img
+              src={fileUrl}
+              alt={fileName || "attachment"}
+              style={{
+                maxWidth: "100%",
+                maxHeight: 300,
+                borderRadius: 8,
+                border: `1px solid ${palette.border}`,
+              }}
+            />
+            <Box sx={{ mt: 1 }}>
+              <a href={fileUrl} download={fileName || "attachment"} style={{ color: palette.accent, textDecoration: "underline" }}>
+                Download Image
+              </a>
+            </Box>
+          </Box>
+          <FilePreviewModal
+            open={modalOpen}
+            onClose={handleCloseModal}
+            fileUrl={fileUrl}
+            fileType={fileType}
+            fileName={fileName}
+          />
+        </>
+      );
+    }
+  }
+  return (
+    <Box sx={{ mt: 1 }}>
+      <a
+        href={fileUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{ color: palette.accent, textDecoration: "underline" }}
+      >
+        View/Download Attachment
+      </a>
+    </Box>
+  );
 };
 
 const AssignedTickets = () => {
@@ -105,8 +301,8 @@ const AssignedTickets = () => {
   const [remarksLoading, setRemarksLoading] = useState(false);
   const [expandedTicketId, setExpandedTicketId] = useState(null);
   const [aiSuggestions, setAiSuggestions] = useState([]);
-  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
-  const [suggestionsFetched, setSuggestionsFetched] = useState(false);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const username = sessionStorage.getItem("username");
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm")); // <600px
@@ -128,25 +324,7 @@ const AssignedTickets = () => {
     setLoadingUser(false);
   };
 
-  // Fetch AI suggestions for the selected ticket
-  const fetchAiSuggestions = async (ticket) => {
-    setLoadingSuggestions(true);
-    setSuggestionsFetched(true);
-    try {
-      const suggestions = await getAiSuggestions({
-        description: ticket.description || "",
-        organization: ticket.organization || "Unknown"
-      });
-      setAiSuggestions(suggestions);
-    } catch (err) {
-      setAiSuggestions([]);
-      console.error("Failed to fetch AI suggestions:", err);
-    } finally {
-      setLoadingSuggestions(false);
-    }
-  };
-
-  // Fetch tickets assigned to agent
+  // Fetch tickets assigned to agent and organization
   const fetchTickets = async () => {
     setLoading(true);
     setError("");
@@ -155,11 +333,17 @@ const AssignedTickets = () => {
       const querySnapshot = await getDocs(q);
       const allTickets = querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 
+      const userRef = doc(db, "Users", username);
+      const userSnap = await getDoc(userRef);
+      const agentOrganization = userSnap.exists() ? userSnap.data().orgName || userSnap.data().organization || "" : "";
+
       const grouped = {};
       statusOrder.forEach((status) => (grouped[status] = []));
       allTickets.forEach((ticket) => {
-        const status = statusOrder.includes(ticket.status) ? ticket.status : "Open";
-        grouped[status].push(ticket);
+        if (ticket.organization === agentOrganization) { 
+          const status = statusOrder.includes(ticket.status) ? ticket.status : "Open";
+          grouped[status].push(ticket);
+        }
       });
 
       setTicketsByStatus(grouped);
@@ -168,6 +352,32 @@ const AssignedTickets = () => {
       setError("Failed to fetch tickets.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Fetch AI suggestions when a ticket is selected
+  const fetchAiSuggestions = async (ticket) => {
+    if (!ticket || !ticket.description || !ticket.organization) return;
+    setSuggestionsLoading(true);
+    try {
+      const suggestions = await getAgentSuggestions({ description: ticket.description, organization: ticket.organization });
+      const enrichedSuggestions = await Promise.all(
+        (suggestions || []).map(async (s) => {
+          const ticketRef = doc(db, "tickets", s.ticketId);
+          const ticketSnap = await getDoc(ticketRef);
+          return {
+            ...s,
+            remarks: ticketSnap.exists() ? ticketSnap.data().remarks || [] : [],
+          };
+        })
+      );
+      const sortedSuggestions = enrichedSuggestions.sort((a, b) => (b.similarity || 0) - (a.similarity || 0));
+      setAiSuggestions(sortedSuggestions);
+    } catch (e) {
+      console.warn("Failed to fetch AI suggestions:", e);
+      setAiSuggestions([]);
+    } finally {
+      setSuggestionsLoading(false);
     }
   };
 
@@ -186,7 +396,6 @@ const AssignedTickets = () => {
     if (newStatus === "Closed") {
       setStatusChange({ open: true, ticket, newStatus, remarks: "" });
     } else {
-      // Directly update status for other statuses
       updateStatusDirectly(ticketId, newStatus);
     }
   };
@@ -219,23 +428,21 @@ const AssignedTickets = () => {
         minute: "2-digit",
         second: "2-digit",
         timeZone: "Asia/Kolkata",
-        timeZoneName: "short"
+        timeZoneName: "short",
       }).replace(",", " at").replace("UTC+5:30", "GMT+5:30");
       let newRemarkEntry = {
         by: username,
         status: newStatus,
         text: remarks,
-        at: now.toISOString()
+        at: now.toISOString(),
       };
 
-      // Fetch current remarks if any
       const ticketSnap = await getDoc(ticketRef);
       let currentRemarks = [];
       if (ticketSnap.exists() && Array.isArray(ticketSnap.data().remarks)) {
         currentRemarks = ticketSnap.data().remarks;
       }
 
-      // Calculate resolvedTime
       const assignedTime = ticketSnap.data().assignedTime || ticket.createdAt;
       const resolvedTime = formatTimeDifference(assignedTime, closedTime);
 
@@ -243,7 +450,7 @@ const AssignedTickets = () => {
         status: newStatus,
         remarks: [...currentRemarks, newRemarkEntry],
         closedTime,
-        resolvedTime
+        resolvedTime,
       });
       setStatusChange({ open: false, ticket: null, newStatus: "", remarks: "" });
       await fetchTickets();
@@ -254,15 +461,12 @@ const AssignedTickets = () => {
     }
   };
 
-  // On row click: open modal, fetch user, and fetch AI suggestions
+  // On row click: open modal and fetch user
   const handleRowClick = async (ticket) => {
     setSelectedTicket(ticket);
-    setSuggestionsFetched(false);
-    setAiSuggestions([]);
-    await Promise.all([
-      fetchUserDetails(ticket.createdBy),
-      fetchAiSuggestions(ticket)
-    ]);
+    await fetchUserDetails(ticket.createdBy);
+    setShowSuggestions(false);  // Reset visibility on new ticket open
+    setAiSuggestions([]);  // Clear previous suggestions
   };
 
   const handleCloseDialog = () => {
@@ -270,8 +474,8 @@ const AssignedTickets = () => {
     setUserDetails({});
     setLoadingUser(false);
     setAiSuggestions([]);
-    setLoadingSuggestions(false);
-    setSuggestionsFetched(false);
+    setSuggestionsLoading(false);
+    setShowSuggestions(false);
   };
 
   // Toggle card expansion for mobile
@@ -304,6 +508,52 @@ const AssignedTickets = () => {
     color: "#1976d2",
     borderBottom: "2px solid #e3e6f0",
     cursor: "default",
+  };
+
+  // Render AI Suggestions
+  const renderAiSuggestions = () => {
+    if (suggestionsLoading) {
+      return (
+        <Box sx={{ my: 2, display: "flex", alignItems: "center" }}>
+          <CircularProgress size={20} sx={{ mr: 1 }} /> Checking for similar past solutions...
+        </Box>
+      );
+    }
+    if (!aiSuggestions.length) {
+      return (
+        <Box sx={{ my: 2, p: 2, border: "1px solid #b3c6e0", borderRadius: "8px", background: "#f6faff" }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 600, color: "#1976d2", mb: 1 }}>
+            No AI suggestions.
+          </Typography>
+        </Box>
+      );
+    }
+    return (
+      <Box sx={{ my: 2, p: 2, border: "1px solid #b3c6e0", borderRadius: "8px", background: "#f6faff" }}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 600, color: "#1976d2", mb: 1 }}>
+          Similar Past Solutions:
+        </Typography>
+        <ul style={{ paddingLeft: 0, listStyle: "none" }}>
+          {aiSuggestions.slice(0, 3).map((s, idx) => (
+            <li key={idx} style={{ marginBottom: 12, border: '1px solid #ccc', padding: 8, borderRadius: 6 }}>
+              <strong>Ticket ID:</strong> {s.ticketId}<br />
+              <strong>Solution:</strong>
+              {Array.isArray(s.remarks) && s.remarks.length > 0 ? (
+                s.remarks.map((remark, rIdx) => (
+                  <span key={rIdx}>
+                    {remark.text || "No remarks available"}
+                    {rIdx < s.remarks.length - 1 && <br />}
+                  </span>
+                ))
+              ) : (
+                <span>No remarks available</span>
+              )}
+              <br /><small>Similarity: {(s.similarity * 100).toFixed(1)}%</small>
+            </li>
+          ))}
+        </ul>
+      </Box>
+    );
   };
 
   return (
@@ -460,10 +710,10 @@ const AssignedTickets = () => {
                                   variant="body2"
                                   sx={{ color: "#1976d2", fontSize: { xs: "0.8rem", sm: "0.85rem" } }}
                                 >
-                                  Department:
+                                  Resolution Time:
                                 </Typography>
                                 <Typography sx={{ fontSize: { xs: "0.8rem", sm: "0.85rem" } }}>
-                                  {ticket.department || <i>N/A</i>}
+                                  {ticket.resolvedTime || <i>N/A</i>}
                                 </Typography>
                               </Box>
                               <Box>
@@ -503,11 +753,11 @@ const AssignedTickets = () => {
                                   variant="body2"
                                   sx={{ color: "#1976d2", fontSize: { xs: "0.8rem", sm: "0.85rem" } }}
                                 >
-                                  Created At:
+                                  Assigned Time:
                                 </Typography>
                                 <Typography sx={{ fontSize: { xs: "0.8rem", sm: "0.85rem" } }}>
-                                  {ticket.createdAt?.seconds
-                                    ? new Date(ticket.createdAt.seconds * 1000).toLocaleString()
+                                  {ticket.assignedTime?.seconds
+                                    ? new Date(ticket.assignedTime.seconds * 1000).toLocaleString()
                                     : <i>N/A</i>}
                                 </Typography>
                               </Box>
@@ -608,10 +858,10 @@ const AssignedTickets = () => {
                       <TableCell sx={headerCellStyles}>Priority</TableCell>
                       <TableCell sx={headerCellStyles}>Ticket ID</TableCell>
                       <TableCell sx={headerCellStyles}>Problem</TableCell>
-                      <TableCell sx={headerCellStyles}>Department</TableCell>
+                      <TableCell sx={headerCellStyles}>Resolution Time</TableCell>
                       <TableCell sx={headerCellStyles}>Description</TableCell>
                       <TableCell sx={headerCellStyles}>Created By</TableCell>
-                      <TableCell sx={headerCellStyles}>Created At</TableCell>
+                      <TableCell sx={headerCellStyles}>Assigned Time</TableCell>
                       <TableCell sx={headerCellStyles}>Status</TableCell>
                     </TableRow>
                   </TableHead>
@@ -664,7 +914,7 @@ const AssignedTickets = () => {
                             />
                           </TableCell>
                           <TableCell sx={cellStyles}>{ticket.problem || <i>N/A</i>}</TableCell>
-                          <TableCell sx={cellStyles}>{ticket.department || <i>N/A</i>}</TableCell>
+                          <TableCell sx={cellStyles}>{ticket.resolvedTime || <i>N/A</i>}</TableCell>
                           <TableCell sx={cellStyles} title={ticket.description}>
                             <Box
                               sx={{
@@ -692,8 +942,8 @@ const AssignedTickets = () => {
                             />
                           </TableCell>
                           <TableCell sx={cellStyles}>
-                            {ticket.createdAt?.seconds
-                              ? new Date(ticket.createdAt.seconds * 1000).toLocaleString()
+                            {ticket.assignedTime?.seconds
+                              ? new Date(ticket.assignedTime.seconds * 1000).toLocaleString()
                               : <i>N/A</i>}
                           </TableCell>
                           <TableCell sx={cellStyles}>
@@ -774,79 +1024,27 @@ const AssignedTickets = () => {
           },
         }}
       >
-        <DialogTitle sx={{ 
+        <DialogTitle sx={{
           fontSize: { xs: "1.1rem", sm: "1.25rem" },
           fontWeight: 600,
           color: "#1976d2",
           display: "flex",
+          justifyContent: "space-between",
           alignItems: "center",
-          gap: 1,
         }}>
-          <LightbulbIcon sx={{ color: "#ffb300" }} />
           Ticket Details
+          <IconButton
+            onClick={handleCloseDialog}
+            sx={{ color: "#1976d2" }}
+            aria-label="Close Dialog"
+          >
+            <CloseIcon />
+          </IconButton>
         </DialogTitle>
         <Divider sx={{ borderColor: "#e3e6f0" }} />
-        <DialogContent>
+        <DialogContent sx={{ maxHeight: { xs: "70vh", sm: "80vh" }, overflowY: "auto" }}>
           {selectedTicket && (
             <Stack spacing={2}>
-              {aiSuggestions.length > 0 && (
-                <Box>
-                  <Typography
-                    variant="subtitle2"
-                    sx={{
-                      color: "#1976d2",
-                      fontSize: { xs: "0.8rem", sm: "0.85rem" },
-                      fontWeight: 500,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 1,
-                    }}
-                  >
-                    <LightbulbIcon sx={{ color: "#ffb300", fontSize: "1.2rem" }} />
-                    AI Suggestions:
-                  </Typography>
-                  <Box sx={{ mt: 1 }}>
-                    {loadingSuggestions ? (
-                      <CircularProgress size={18} />
-                    ) : (
-                      <Stack spacing={1}>
-                        {aiSuggestions.map((suggestion, idx) => (
-                          <Box
-                            key={idx}
-                            sx={{
-                              p: 1.5,
-                              bgcolor: "#fff3e0",
-                              borderRadius: 1,
-                              border: "1px solid #ffe0b2",
-                              fontSize: { xs: "0.8rem", sm: "0.85rem" },
-                            }}
-                          >
-                            <Typography
-                              variant="body2"
-                              sx={{ fontWeight: 500, mb: 0.5 }}
-                            >
-                              Ticket ID: {suggestion.ticketId} (Similarity: {(suggestion.similarity * 100).toFixed(1)}%)
-                            </Typography>
-                            <Typography
-                              variant="body2"
-                              sx={{ fontSize: { xs: "0.8rem", sm: "0.85rem" } }}
-                            >
-                              <b>Problem:</b> {suggestion.problem}
-                            </Typography>
-                            <Typography
-                              variant="body2"
-                              sx={{ fontSize: { xs: "0.8rem", sm: "0.85rem" } }}
-                            >
-                              <b>Resolution:</b> {suggestion.remarks}
-                            </Typography>
-                          </Box>
-                        ))}
-                      </Stack>
-                    )}
-                  </Box>
-                </Box>
-              )}
-              <Divider sx={{ my: 1, borderColor: "#e3e6f0" }} />
               <Box>
                 <Typography
                   variant="subtitle2"
@@ -921,10 +1119,10 @@ const AssignedTickets = () => {
                     fontWeight: 500,
                   }}
                 >
-                  Department:
+                  Resolution Time:
                 </Typography>
                 <Typography sx={{ fontSize: { xs: "0.85rem", sm: "0.9rem" } }}>
-                  {selectedTicket.department || <i>N/A</i>}
+                  {selectedTicket.resolvedTime || <i>N/A</i>}
                 </Typography>
               </Box>
               <Box>
@@ -959,11 +1157,11 @@ const AssignedTickets = () => {
                     fontWeight: 500,
                   }}
                 >
-                  Created At:
+                  Assigned Time:
                 </Typography>
                 <Typography sx={{ fontSize: { xs: "0.85rem", sm: "0.9rem" } }}>
-                  {selectedTicket.createdAt?.seconds
-                    ? new Date(selectedTicket.createdAt.seconds * 1000).toLocaleString()
+                  {selectedTicket.assignedTime?.seconds
+                    ? new Date(selectedTicket.assignedTime.seconds * 1000).toLocaleString()
                     : <i>N/A</i>}
                 </Typography>
               </Box>
@@ -976,7 +1174,7 @@ const AssignedTickets = () => {
                     fontWeight: 500,
                   }}
                 >
-                  Closed At:
+                  Closed Time:
                 </Typography>
                 <Typography sx={{ fontSize: { xs: "0.85rem", sm: "0.9rem" } }}>
                   {selectedTicket.closedTime || <i>N/A</i>}
@@ -991,7 +1189,7 @@ const AssignedTickets = () => {
                     fontWeight: 500,
                   }}
                 >
-                  Resolved Time:
+                  Responded Time:
                 </Typography>
                 <Typography sx={{ fontSize: { xs: "0.85rem", sm: "0.9rem" } }}>
                   {selectedTicket.resolvedTime || <i>N/A</i>}
@@ -1070,6 +1268,26 @@ const AssignedTickets = () => {
                   </Box>
                 </Box>
               )}
+              {selectedTicket.fileUrl && (
+                <Box>
+                  <Divider sx={{ my: 1, borderColor: "#e3e6f0" }} />
+                  <Typography
+                    variant="subtitle2"
+                    sx={{
+                      color: "#1976d2",
+                      fontSize: { xs: "0.8rem", sm: "0.85rem" },
+                      fontWeight: 500,
+                    }}
+                  >
+                    File:
+                  </Typography>
+                  <FilePreview
+                    fileUrl={selectedTicket.fileUrl}
+                    fileType={selectedTicket.fileType}
+                    fileName={selectedTicket.fileName}
+                  />
+                </Box>
+              )}
               <Divider sx={{ my: 1, borderColor: "#e3e6f0" }} />
               <Box>
                 <Typography
@@ -1126,23 +1344,26 @@ const AssignedTickets = () => {
                   </Typography>
                 )}
               </Box>
+              {/* Render AI Suggestions conditionally */}
+              {showSuggestions && renderAiSuggestions()}
             </Stack>
           )}
         </DialogContent>
         <DialogActions sx={{ gap: 1 }}>
-          {!suggestionsFetched && !loadingSuggestions && (
+          {['Assigned', 'Open'].includes(selectedTicket?.status) && (
             <Button
-              variant="contained"
-              color="warning"
-              startIcon={<LightbulbIcon />}
-              onClick={() => fetchAiSuggestions(selectedTicket)}
+              variant="outlined"
+              color="primary"
+              onClick={() => {
+                setShowSuggestions(!showSuggestions);
+                if (!aiSuggestions.length && !suggestionsLoading) {
+                  fetchAiSuggestions(selectedTicket);
+                }
+              }}
+              disabled={suggestionsLoading}
               sx={{
                 fontSize: { xs: "0.8rem", sm: "0.85rem" },
                 minWidth: { xs: 80, sm: 100 },
-                bgcolor: "#ffb300",
-                "&:hover": {
-                  bgcolor: "#ffca28",
-                },
               }}
             >
               AI Suggestions
@@ -1182,7 +1403,7 @@ const AssignedTickets = () => {
           },
         }}
       >
-        <DialogTitle sx={{ 
+        <DialogTitle sx={{
           fontSize: { xs: "1.1rem", sm: "1.25rem" },
           fontWeight: 600,
           color: "#1976d2",
@@ -1204,7 +1425,7 @@ const AssignedTickets = () => {
             value={statusChange.remarks}
             onChange={(e) => setStatusChange({ ...statusChange, remarks: e.target.value })}
             disabled={remarksLoading}
-            sx={{ 
+            sx={{
               "& .MuiInputBase-root": { fontSize: { xs: "0.8rem", sm: "0.85rem" } },
               "& .MuiOutlinedInput-root": {
                 "& fieldset": { borderColor: "#e3e6f0" },

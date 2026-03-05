@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   Box,
   Typography,
@@ -20,20 +20,246 @@ import {
   useMediaQuery,
   TextField,
   Grid,
+  Slider,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import { db } from "../../firebase.js";
 import { doc, getDoc, updateDoc, collection, getDocs, query, where } from "firebase/firestore";
+import { Timestamp } from "firebase/firestore";
 import dayjs from "dayjs";
 
+// Blue palette (consistent with ViewTickets.jsx)
+const palette = {
+  accent: "#1976d2",
+  accentDark: "#115293",
+  accentLight: "#e3f2fd",
+  border: "#b3c7e6",
+};
+
 const normalizeOrg = (org) => (org || "").trim().toLowerCase();
+
+// Modal for zoomed file preview
+const FilePreviewModal = ({ open, onClose, fileUrl, fileType, fileName }) => {
+  const [zoomLevel, setZoomLevel] = useState(100);
+
+  const handleZoomChange = (event, newValue) => {
+    setZoomLevel(newValue);
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      maxWidth="lg"
+      fullWidth
+      sx={{
+        "& .MuiDialog-paper": {
+          background: "rgba(0, 0, 0, 0.9)",
+          borderRadius: 2,
+          maxHeight: "90vh",
+          maxWidth: "90vw",
+        },
+      }}
+    >
+      <DialogTitle sx={{ fontFamily: "PT Serif", color: "#fff", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        {fileName || "File Preview"}
+        <IconButton
+          aria-label="close"
+          onClick={onClose}
+          sx={{ color: "#fff" }}
+        >
+          <CloseIcon />
+        </IconButton>
+      </DialogTitle>
+      <DialogContent sx={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", p: 2 }}>
+        <Box sx={{ width: "100%", maxWidth: 600, mb: 2 }}>
+          <Typography sx={{ fontFamily: "PT Serif", color: "#fff", fontSize: "0.9rem", mb: 1 }}>
+            Zoom: {zoomLevel}%
+          </Typography>
+          <Slider
+            value={zoomLevel}
+            onChange={handleZoomChange}
+            min={50}
+            max={200}
+            step={10}
+            sx={{
+              color: palette.accent,
+              "& .MuiSlider-thumb": {
+                backgroundColor: "#fff",
+                border: `2px solid ${palette.accent}`,
+              },
+              "& .MuiSlider-rail": {
+                backgroundColor: "#fff",
+              },
+            }}
+            aria-label="Zoom level"
+          />
+        </Box>
+        {fileUrl && typeof fileUrl === "string" && fileUrl.startsWith("data:") ? (
+          fileUrl.startsWith("data:application/pdf") ? (
+            <embed
+              src={fileUrl}
+              type="application/pdf"
+              title={fileName || "PDF Preview"}
+              style={{
+                width: `${zoomLevel}%`,
+                height: `${zoomLevel * 0.8}vh`,
+                maxWidth: "100%",
+                maxHeight: "80vh",
+                borderRadius: 8,
+                border: `1px solid ${palette.border}`,
+              }}
+            />
+          ) : (
+            <img
+              src={fileUrl}
+              alt={fileName || "attachment"}
+              style={{
+                transform: `scale(${zoomLevel / 100})`,
+                maxWidth: "100%",
+                maxHeight: "80vh",
+                objectFit: "contain",
+                borderRadius: 8,
+                border: `1px solid ${palette.border}`,
+                transformOrigin: "center",
+              }}
+            />
+          )
+        ) : (
+          <Typography sx={{ fontFamily: "PT Serif", color: "#fff" }}>
+            Unable to preview this file type. Please download to view.
+          </Typography>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button
+          href={fileUrl}
+          download={fileName || "attachment"}
+          sx={{ fontFamily: "PT Serif", color: "#fff", textTransform: "none" }}
+        >
+          Download
+        </Button>
+        <Button
+          onClick={onClose}
+          sx={{ fontFamily: "PT Serif", color: "#fff", textTransform: "none" }}
+        >
+          Close
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+};
+
+// Helper for file preview
+const FilePreview = ({ fileUrl, fileType, fileName }) => {
+  const [modalOpen, setModalOpen] = useState(false);
+
+  const handleOpenModal = () => {
+    if (fileUrl && typeof fileUrl === "string" && fileUrl.startsWith("data:")) {
+      if (
+        fileUrl.startsWith("data:application/pdf") ||
+        fileUrl.startsWith("data:image/png") ||
+        fileUrl.startsWith("data:image/jpeg") ||
+        fileUrl.startsWith("data:image/webp")
+      ) {
+        setModalOpen(true);
+      }
+    }
+  };
+
+  const handleCloseModal = () => {
+    setModalOpen(false);
+  };
+
+  if (!fileUrl) return null;
+  if (typeof fileUrl === "string" && fileUrl.startsWith("data:")) {
+    if (fileUrl.startsWith("data:application/pdf")) {
+      return (
+        <>
+          <Box sx={{ mt: 1, cursor: "pointer" }} onClick={handleOpenModal}>
+            <Typography sx={{ fontFamily: "PT Serif", color: palette.accentDark, fontSize: "0.9rem" }}>
+              <strong>Preview (click to zoom):</strong>
+            </Typography>
+            <embed
+              src={fileUrl}
+              type="application/pdf"
+              width="100%"
+              height="300px"
+              style={{ borderRadius: 8, border: `1px solid ${palette.border}` }}
+            />
+            <Box sx={{ mt: 1 }}>
+              <a href={fileUrl} download={fileName || "attachment.pdf"} style={{ color: palette.accent, textDecoration: "underline" }}>
+                Download PDF
+              </a>
+            </Box>
+          </Box>
+          <FilePreviewModal
+            open={modalOpen}
+            onClose={handleCloseModal}
+            fileUrl={fileUrl}
+            fileType={fileType}
+            fileName={fileName}
+          />
+        </>
+      );
+    } else if (
+      fileUrl.startsWith("data:image/png") ||
+      fileUrl.startsWith("data:image/jpeg") ||
+      fileUrl.startsWith("data:image/webp")
+    ) {
+      return (
+        <>
+          <Box sx={{ mt: 1, cursor: "pointer" }} onClick={handleOpenModal}>
+            <Typography sx={{ fontFamily: "PT Serif", color: palette.accentDark, fontSize: "0.9rem" }}>
+              <strong>Preview (click to zoom):</strong>
+            </Typography>
+            <img
+              src={fileUrl}
+              alt={fileName || "attachment"}
+              style={{
+                maxWidth: "100%",
+                maxHeight: 300,
+                borderRadius: 8,
+                border: `1px solid ${palette.border}`,
+              }}
+            />
+            <Box sx={{ mt: 1 }}>
+              <a href={fileUrl} download={fileName || "attachment"} style={{ color: palette.accent, textDecoration: "underline" }}>
+                Download Image
+              </a>
+            </Box>
+          </Box>
+          <FilePreviewModal
+            open={modalOpen}
+            onClose={handleCloseModal}
+            fileUrl={fileUrl}
+            fileType={fileType}
+            fileName={fileName}
+          />
+        </>
+      );
+    }
+  }
+  return (
+    <Box sx={{ mt: 1 }}>
+      <a
+        href={fileUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{ color: palette.accent, textDecoration: "underline" }}
+      >
+        View/Download Attachment
+      </a>
+    </Box>
+  );
+};
 
 const TicketDetails = ({ ticketId, onClose, organization, navigate }) => {
   const [ticket, setTicket] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [assignFormOpen, setAssignFormOpen] = useState(false);
-  const [invalidConfirmOpen, setInvalidConfirmOpen] = useState(false); // New state for confirmation dialog
+  const [invalidConfirmOpen, setInvalidConfirmOpen] = useState(false);
 
   // For department dropdown
   const [departments, setDepartments] = useState([]);
@@ -48,6 +274,7 @@ const TicketDetails = ({ ticketId, onClose, organization, navigate }) => {
   const [resolutionDays, setResolutionDays] = useState("");
   const [resolutionHours, setResolutionHours] = useState("");
   const [resolutionMinutes, setResolutionMinutes] = useState("");
+  const initialResolutionTimeRef = useRef(""); // <--- NEW
 
   // Assignment state
   const [assignedDialogOpen, setAssignedDialogOpen] = useState(false);
@@ -63,26 +290,24 @@ const TicketDetails = ({ ticketId, onClose, organization, navigate }) => {
   const hoursOptions = Array.from({ length: 24 }, (_, i) => i);
   const minutesOptions = Array.from({ length: 60 }, (_, i) => i);
 
-  // Parse stored resolution time into days, hours, minutes when ticket loads
+  // Whenever assign dialog opens, parse stored resolutionTime into dropdowns
   useEffect(() => {
-    if (ticket?.resolutionTime) {
+    if (assignFormOpen && ticket?.resolutionTime) {
       const regex = /(\d+)\s*days?\s*(\d+)?\s*hours?\s*(\d+)?\s*minutes?/i;
       const match = ticket.resolutionTime.match(regex);
       if (match) {
         setResolutionDays(match[1] || "0");
         setResolutionHours(match[2] || "0");
         setResolutionMinutes(match[3] || "0");
+        initialResolutionTimeRef.current = `${match[1] || "0"} days ${match[2] || "0"} hours ${match[3] || "0"} minutes`;
       } else {
-        setResolutionDays("1");
+        setResolutionDays("0");
         setResolutionHours("0");
         setResolutionMinutes("0");
+        initialResolutionTimeRef.current = "0 days 0 hours 0 minutes";
       }
-    } else {
-      setResolutionDays("1");
-      setResolutionHours("0");
-      setResolutionMinutes("0");
     }
-  }, [ticket]);
+  }, [assignFormOpen, ticket]);
 
   // Handle marking ticket as invalid
   const handleMarkInvalid = async () => {
@@ -122,13 +347,13 @@ const TicketDetails = ({ ticketId, onClose, organization, navigate }) => {
         return;
       }
 
-      const assignedTime = new Date();
+      const assignedTime = Timestamp.fromDate(new Date());
       const createdAt = ticket.createdAt && ticket.createdAt.seconds
         ? new Date(ticket.createdAt.seconds * 1000)
         : null;
       let respondedTime = "";
       if (createdAt) {
-        const diffInMs = assignedTime - createdAt;
+        const diffInMs = assignedTime.toDate() - createdAt;
         const diffInMinutes = Math.floor(diffInMs / (1000 * 60));
         const days = Math.floor(diffInMinutes / (24 * 60));
         const hours = Math.floor((diffInMinutes % (24 * 60)) / 60);
@@ -136,17 +361,30 @@ const TicketDetails = ({ ticketId, onClose, organization, navigate }) => {
         respondedTime = `${days} days ${hours} hours ${minutes} minutes`;
       }
 
-      const resolutionTime = `${resolutionDays} days ${resolutionHours} hours ${resolutionMinutes} minutes`;
+      // Compute the new resolutionTime string
+      const editedResolutionTime = `${resolutionDays} days ${resolutionHours} hours ${resolutionMinutes} minutes`;
+      // If admin did NOT edit dropdowns, use ticket.resolutionTime as it was!
+      let resolutionTimeToStore = editedResolutionTime;
+      if (
+        editedResolutionTime === initialResolutionTimeRef.current
+        || (
+          // fallback: if dropdowns match what's in tickets
+          ticket.resolutionTime &&
+          editedResolutionTime === ticket.resolutionTime
+        )
+      ) {
+        resolutionTimeToStore = ticket.resolutionTime;
+      }
 
       await updateDoc(doc(db, "tickets", ticket.id), {
         assignedAgent: selectedAgent,
         status: "Assigned",
         department: selectedDepartment,
         responseTime: responseTime,
-        resolutionTime: resolutionTime,
+        resolutionTime: resolutionTimeToStore,
         assignedTime: assignedTime,
         respondedTime: respondedTime,
-        updatedAt: new Date(), // Update timestamp
+        updatedAt: new Date(),
       });
 
       const allTickets = await getDocs(collection(db, "tickets"));
@@ -224,8 +462,9 @@ const TicketDetails = ({ ticketId, onClose, organization, navigate }) => {
       return;
     }
     try {
-      const deptRef = collection(db, "Organizations", ticket.organization, "Departments");
-      const deptSnapshot = await getDocs(deptRef);
+      const deptRef = collection(db, "Departments");
+      const q = query(deptRef, where("orgName", "==", ticket.organization));
+      const deptSnapshot = await getDocs(q);
       const deptList = deptSnapshot.docs.map((doc) => {
         const data = doc.data();
         return {
@@ -331,7 +570,7 @@ const TicketDetails = ({ ticketId, onClose, organization, navigate }) => {
             margin: "0 auto",
           }}
         >
-          <CardContent>
+          <CardContent sx={{ maxHeight: isMobile ? "70vh" : "80vh", overflowY: "auto" }}>
             <Box sx={{ display: "flex", flexDirection: isMobile ? "column" : "row", justifyContent: "space-between", alignItems: isMobile ? "flex-start" : "center", mb: 2 }}>
               <Typography variant={isMobile ? "h5" : "h4"} sx={{ fontFamily: "PT Serif", color: "#1A43BF", wordBreak: "break-all" }}>
                 Ticket {safeField(ticket.id)}
@@ -383,9 +622,7 @@ const TicketDetails = ({ ticketId, onClose, organization, navigate }) => {
             {ticket.fileUrl && (
               <Typography variant="subtitle1" sx={{ color: "#333", mb: 1 }}>
                 <strong>File:</strong>{" "}
-                <a href={ticket.fileUrl} target="_blank" rel="noopener noreferrer">
-                  View File
-                </a>
+                <FilePreview fileUrl={ticket.fileUrl} fileType={ticket.fileType} fileName={ticket.fileName} />
               </Typography>
             )}
             <Box sx={{ display: "flex", gap: 2, mt: 2, flexDirection: isMobile ? "column" : "row" }}>

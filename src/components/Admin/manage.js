@@ -1,14 +1,19 @@
-
 import React, { useEffect, useState } from "react";
 import {
-  Box, Typography, TextField, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Button,
+  Box, Typography, TextField, Table, TableContainer, TableHead, TableBody, TableRow, TableCell, Button,
   Paper, Dialog, DialogTitle, DialogContent, DialogActions, MenuItem, Select, IconButton, useMediaQuery, useTheme,
 } from "@mui/material";
 import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import AddIcon from "@mui/icons-material/Add";
-import { collection, getDocs, setDoc, doc, deleteDoc } from "firebase/firestore";
+import { collection, getDocs, setDoc, doc, deleteDoc, query, where } from "firebase/firestore";
 import { db } from "../../firebase";
+
+const SLA_PRIORITIES = [
+  { priority: "High", default: { days: 0, hours: 12, minutes: 0 } },
+  { priority: "Medium", default: { days: 1, hours: 12, minutes: 0 } },
+  { priority: "Low", default: { days: 3, hours: 0, minutes: 0 } },
+];
 
 const Manage = ({ manageType, organization, NAVY, WHITE, LIGHT_GREY, SELECT_BG }) => {
   const [items, setItems] = useState([]);
@@ -29,49 +34,135 @@ const Manage = ({ manageType, organization, NAVY, WHITE, LIGHT_GREY, SELECT_BG }
   const [editingItem, setEditingItem] = useState(null);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const orgPrefix = `${organization}.`;
+
+  // Get suffix from a prefixed ID
+  const getSuffix = (id) => {
+    return id && id.startsWith(orgPrefix) ? id.slice(orgPrefix.length) : id;
+  };
+
+  // SLASettings: use orgname.priority for doc ID
+  const getSLAId = (priority) => `${organization}.${priority}`;
+
+  // Check for duplicate departmentId or slaPriority, including cross-collection check
+  const checkDuplicate = async (type, id) => {
+    const collectionName = type === "department" ? "Departments" : "SLASettings";
+    const oppositeCollection = type === "department" ? "SLASettings" : "Departments";
+    const fieldName = type === "department" ? "departmentId" : "priority";
+    const oppositeFieldName = type === "department" ? "priority" : "departmentId";
+    const prefixedId = id.startsWith(orgPrefix) ? id : `${orgPrefix}${id}`;
+
+    // Check within the same collection
+    const sameCollectionQuery = query(
+      collection(db, collectionName),
+      where("orgName", "==", organization),
+      where(fieldName, "==", id)
+    );
+    const sameCollectionSnapshot = await getDocs(sameCollectionQuery);
+    if (!sameCollectionSnapshot.empty) {
+      return { isDuplicate: true, source: collectionName };
+    }
+
+    // Check in the opposite collection
+    const oppositeCollectionQuery = query(
+      collection(db, oppositeCollection),
+      where("orgName", "==", organization),
+      where(oppositeFieldName, "==", prefixedId)
+    );
+    const oppositeCollectionSnapshot = await getDocs(oppositeCollectionQuery);
+    if (!oppositeCollectionSnapshot.empty) {
+      return { isDuplicate: true, source: oppositeCollection };
+    }
+
+    return { isDuplicate: false, source: null };
+  };
 
   // Fetch departments or SLA settings and agents
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const collectionName = manageType === "department" ? "Departments" : "SLASettings";
-        const snapshot = await getDocs(collection(db, "Organizations", organization, collectionName));
-        let fetchedItems = snapshot.docs.map(doc => {
-          const data = doc.data();
-          // Ensure services is an array, handling string or missing values
-          const services = Array.isArray(data.services) ? data.services : 
-                          typeof data.services === "string" ? data.services.split(",").map(s => s.trim()) : [];
-          return {
-            id: doc.id,
-            ...data,
-            services, // Override with normalized array
-          };
-        });
+        if (manageType === "sla") {
+          // SLA logic
+          let fetchedItems = [];
+          // Try to fetch all SLASettings for this org
+          const q = query(
+            collection(db, "SLASettings"),
+            where("orgName", "==", organization)
+          );
+          const snapshot = await getDocs(q);
+          const existingSLA = {};
+          snapshot.docs.forEach(docRef => {
+            const data = docRef.data();
+            existingSLA[data.priority] = {
+              id: docRef.id,
+              ...data,
+            };
+          });
 
-        // If SLA settings are empty, initialize with default values
-        if (manageType === "sla" && fetchedItems.length === 0) {
-          const defaultSLAs = [
-            { id: "High", priority: "High", days: 0, hours: 12, minutes: 0 },
-            { id: "Medium", priority: "Medium", days: 1, hours: 0, minutes: 0 },
-            { id: "Low", priority: "Low", days: 2, hours: 0, minutes: 0 },
-          ];
-          
-          for (const sla of defaultSLAs) {
-            await setDoc(doc(db, "Organizations", organization, "SLASettings", sla.id), {
-              priority: sla.priority,
-              days: sla.days,
-              hours: sla.hours,
-              minutes: sla.minutes,
-              createdAt: new Date(),
-            });
+          // Ensure all three priorities (High, Medium, Low) exist, add missing with default
+          for (const { priority, default: def } of SLA_PRIORITIES) {
+            const slaId = getSLAId(priority);
+            let item;
+            if (existingSLA[priority]) {
+              // If a field is missing (days/hours/minutes), update with defaults
+              let needsUpdate = false;
+              let updatedData = { ...existingSLA[priority] };
+              ["days", "hours", "minutes"].forEach((field) => {
+                if (
+                  updatedData[field] === undefined ||
+                  updatedData[field] === null
+                ) {
+                  updatedData[field] = def[field];
+                  needsUpdate = true;
+                }
+              });
+              // Store defaults if not present
+              if (needsUpdate) {
+                await setDoc(doc(db, "SLASettings", slaId), updatedData);
+              }
+              item = updatedData;
+            } else {
+              item = {
+                id: slaId,
+                slaId,
+                priority,
+                days: def.days,
+                hours: def.hours,
+                minutes: def.minutes,
+                orgName: organization,
+                createdAt: new Date(),
+              };
+              // Create missing one in Firestore
+              await setDoc(doc(db, "SLASettings", slaId), item);
+            }
+            fetchedItems.push(item);
           }
-          fetchedItems = defaultSLAs;
-        }
-        
-        setItems(fetchedItems);
 
-        // Fetch agents for department view
-        if (manageType === "department") {
+          setItems(fetchedItems);
+        } else {
+          // Department logic
+          const collectionName = "Departments";
+          const q = query(
+            collection(db, collectionName),
+            where("orgName", "==", organization)
+          );
+          const snapshot = await getDocs(q);
+          let fetchedItems = snapshot.docs.map(doc => {
+            const data = doc.data();
+            const services = Array.isArray(data.services)
+              ? data.services
+              : typeof data.services === "string"
+                ? data.services.split(",").map(s => s.trim())
+                : [];
+            return {
+              id: doc.id,
+              ...data,
+              services,
+            };
+          });
+          setItems(fetchedItems);
+
+          // Fetch agents for department view
           const usersSnapshot = await getDocs(collection(db, "Users"));
           const fetchedAgents = usersSnapshot.docs
             .map(doc => ({
@@ -80,7 +171,7 @@ const Manage = ({ manageType, organization, NAVY, WHITE, LIGHT_GREY, SELECT_BG }
               orgName: doc.data().orgName || "Not Assigned",
               role: doc.data().role || "user",
             }))
-            .filter(agent => agent.role === "agent" && agent.orgName.toLowerCase() === organization.toLowerCase());
+            .filter(agent => agent.role === "agent" && agent.orgName === organization);
           setAgents(fetchedAgents);
         }
       } catch (error) {
@@ -100,14 +191,16 @@ const Manage = ({ manageType, organization, NAVY, WHITE, LIGHT_GREY, SELECT_BG }
   };
 
   // Validate form inputs
-  const validateForm = () => {
+  const validateForm = async () => {
     const errors = {};
     if (manageType === "sla") {
       if (formData.days === 0 && formData.hours === 0 && formData.minutes === 0) {
         errors.time = "At least one time field must be greater than 0!";
       }
     } else if (manageType === "department") {
-      if (!formData.departmentId.trim()) errors.departmentId = "Department ID is required!";
+      if (!formData.departmentId.trim()) {
+        errors.departmentId = "Department ID suffix is required!";
+      }
       if (!formData.name.trim()) errors.name = "Department Name is required!";
       if (!formData.services.trim()) errors.services = "Services are required!";
     }
@@ -117,20 +210,27 @@ const Manage = ({ manageType, organization, NAVY, WHITE, LIGHT_GREY, SELECT_BG }
 
   // Edit SLA setting
   const handleEditItem = async () => {
-    if (!validateForm()) return;
+    if (!(await validateForm())) return;
     try {
+      const { slaPriority, days, hours, minutes } = formData;
+      const priority = slaPriority;
+      const slaId = getSLAId(priority);
+
+      // Always save all fields including the default values
       const itemData = {
-        priority: formData.slaPriority,
-        days: parseInt(formData.days),
-        hours: parseInt(formData.hours),
-        minutes: parseInt(formData.minutes),
+        slaId,
+        priority,
+        days: parseInt(days),
+        hours: parseInt(hours),
+        minutes: parseInt(minutes),
+        orgName: organization,
         createdAt: new Date(),
       };
-      
-      await setDoc(doc(db, "Organizations", organization, "SLASettings", formData.slaPriority), itemData);
-      setItems((prev) => 
-        prev.map((item) => 
-          item.id === formData.slaPriority ? { id: formData.slaPriority, ...itemData } : item
+
+      await setDoc(doc(db, "SLASettings", slaId), itemData);
+      setItems((prev) =>
+        prev.map((item) =>
+          item.priority === priority ? { ...item, ...itemData } : item
         )
       );
       setMessage("SLA setting updated successfully!");
@@ -151,19 +251,60 @@ const Manage = ({ manageType, organization, NAVY, WHITE, LIGHT_GREY, SELECT_BG }
     }
   };
 
-  // Add Department
-  const handleAddDepartment = async () => {
-    if (!validateForm()) return;
+  // Edit Department
+  const handleEditDepartment = async () => {
+    if (!(await validateForm())) return;
     try {
+      const prefixedDepartmentId = `${orgPrefix}${formData.departmentId}`;
+      const compositeId = `${organization}_${formData.departmentId}`;
       const itemData = {
-        departmentId: formData.departmentId,
+        departmentId: prefixedDepartmentId,
         name: formData.name,
         services: formData.services.split(",").map(service => service.trim()),
+        orgName: organization,
         createdAt: new Date(),
       };
-      
-      await setDoc(doc(db, "Organizations", organization, "Departments", formData.departmentId), itemData);
-      setItems((prev) => [...prev, { id: formData.departmentId, ...itemData }]);
+
+      await setDoc(doc(db, "Departments", compositeId), itemData);
+      setItems((prev) =>
+        prev.map((item) =>
+          item.id === compositeId ? { id: compositeId, ...itemData } : item
+        )
+      );
+      setMessage("Department updated successfully!");
+      setFormData({
+        slaPriority: "",
+        days: 0,
+        hours: 0,
+        minutes: 0,
+        departmentId: "",
+        name: "",
+        services: "",
+      });
+      setDialogOpen(false);
+      setFormErrors({});
+      setEditingItem(null);
+    } catch (error) {
+      setMessage("Failed to update department. Please try again.");
+    }
+  };
+
+  // Add Department (unchanged)
+  const handleAddDepartment = async () => {
+    if (!(await validateForm())) return;
+    try {
+      const prefixedDepartmentId = `${orgPrefix}${formData.departmentId}`;
+      const compositeId = `${organization}_${formData.departmentId}`;
+      const itemData = {
+        departmentId: prefixedDepartmentId,
+        name: formData.name,
+        services: formData.services.split(",").map(service => service.trim()),
+        orgName: organization,
+        createdAt: new Date(),
+      };
+
+      await setDoc(doc(db, "Departments", compositeId), itemData);
+      setItems((prev) => [...prev, { id: compositeId, ...itemData }]);
       setMessage("Department added successfully!");
       setFormData({
         slaPriority: "",
@@ -181,10 +322,10 @@ const Manage = ({ manageType, organization, NAVY, WHITE, LIGHT_GREY, SELECT_BG }
     }
   };
 
-  // Delete a department
+  // Delete a department (unchanged)
   const handleDeleteItem = async (id) => {
     try {
-      await deleteDoc(doc(db, "Organizations", organization, "Departments", id));
+      await deleteDoc(doc(db, "Departments", id));
       setItems((prev) => prev.filter((item) => item.id !== id));
       setMessage("Department deleted successfully!");
     } catch (error) {
@@ -194,17 +335,32 @@ const Manage = ({ manageType, organization, NAVY, WHITE, LIGHT_GREY, SELECT_BG }
 
   // Open edit dialog
   const openEditDialog = (item) => {
-    setFormData({
-      slaPriority: item.priority,
-      days: item.days,
-      hours: item.hours,
-      minutes: item.minutes,
-    });
+    if (manageType === "sla") {
+      setFormData({
+        slaPriority: item.priority || "",
+        days: item.days || 0,
+        hours: item.hours || 0,
+        minutes: item.minutes || 0,
+        departmentId: "",
+        name: "",
+        services: "",
+      });
+    } else {
+      setFormData({
+        slaPriority: "",
+        days: 0,
+        hours: 0,
+        minutes: 0,
+        departmentId: item.departmentId ? getSuffix(item.departmentId) : "",
+        name: item.name || "",
+        services: Array.isArray(item.services) ? item.services.join(", ") : "",
+      });
+    }
     setEditingItem(item);
     setDialogOpen(true);
   };
 
-  // Open add dialog
+  // Open add dialog (unchanged)
   const openAddDialog = () => {
     setFormData({
       slaPriority: "",
@@ -302,6 +458,9 @@ const Manage = ({ manageType, organization, NAVY, WHITE, LIGHT_GREY, SELECT_BG }
         <Table size="small">
           <TableHead>
             <TableRow sx={{ backgroundColor: SELECT_BG }}>
+              <TableCell sx={{ color: WHITE, fontWeight: 700, fontSize: { xs: "0.8rem", sm: "0.9rem", md: "1.1rem" } }}>
+                Serial No.
+              </TableCell>
               {manageType === "department" ? (
                 <>
                   <TableCell sx={{ color: WHITE, fontWeight: 700, fontSize: { xs: "0.8rem", sm: "0.9rem", md: "1.1rem" } }}>
@@ -333,8 +492,11 @@ const Manage = ({ manageType, organization, NAVY, WHITE, LIGHT_GREY, SELECT_BG }
             </TableRow>
           </TableHead>
           <TableBody>
-            {items.map((item) => (
-              <TableRow key={item.id} sx={{ "&:hover": { backgroundColor: SELECT_BG, color: WHITE } }}>
+            {items.map((item, index) => (
+              <TableRow key={item.id || item.slaId} sx={{ "&:hover": { backgroundColor: SELECT_BG, color: WHITE } }}>
+                <TableCell sx={{ color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem", md: "1.05rem" } }}>
+                  {index + 1}
+                </TableCell>
                 {manageType === "department" ? (
                   <>
                     <TableCell sx={{ color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem", md: "1.05rem" } }}>
@@ -350,6 +512,13 @@ const Manage = ({ manageType, organization, NAVY, WHITE, LIGHT_GREY, SELECT_BG }
                       {agents.filter(agent => agent.department === item.name).map(agent => agent.username).join(", ") || "None"}
                     </TableCell>
                     <TableCell>
+                      <IconButton
+                        onClick={() => openEditDialog(item)}
+                        sx={{ color: NAVY, "&:hover": { color: WHITE } }}
+                        aria-label={`Edit department ${item.id}`}
+                      >
+                        <EditIcon />
+                      </IconButton>
                       <IconButton
                         onClick={() => handleDeleteItem(item.id)}
                         sx={{ color: NAVY, "&:hover": { color: WHITE } }}
@@ -371,7 +540,7 @@ const Manage = ({ manageType, organization, NAVY, WHITE, LIGHT_GREY, SELECT_BG }
                       <IconButton
                         onClick={() => openEditDialog(item)}
                         sx={{ color: NAVY, "&:hover": { color: WHITE } }}
-                        aria-label={`Edit SLA ${item.id}`}
+                        aria-label={`Edit SLA ${item.slaId || item.id}`}
                       >
                         <EditIcon />
                       </IconButton>
@@ -383,7 +552,7 @@ const Manage = ({ manageType, organization, NAVY, WHITE, LIGHT_GREY, SELECT_BG }
             {items.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={manageType === "department" ? 5 : 3}
+                  colSpan={manageType === "department" ? 6 : 4}
                   align="center"
                   sx={{ color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem", md: "1.1rem" } }}
                 >
@@ -399,7 +568,7 @@ const Manage = ({ manageType, organization, NAVY, WHITE, LIGHT_GREY, SELECT_BG }
         onClose={() => {
           setDialogOpen(false);
           setEditingItem(null);
-          setFormData({ slaPriority: "", days: 0, hours: 0, minutes: 0, departmentID: "", name: "", services: "" });
+          setFormData({ slaPriority: "", days: 0, hours: 0, minutes: 0, departmentId: "", name: "", services: "" });
         }}
         maxWidth="sm"
         fullWidth
@@ -412,82 +581,36 @@ const Manage = ({ manageType, organization, NAVY, WHITE, LIGHT_GREY, SELECT_BG }
         }}
       >
         <DialogTitle sx={{ color: NAVY, fontSize: { xs: "1rem", sm: "1.1rem", md: "1.25rem" } }}>
-          Edit SLA Setting
+          {manageType === "department" ? "Edit Department" : "Edit SLA Setting"}
         </DialogTitle>
         <DialogContent>
-          {manageType === "department" ? (
+          {manageType === "sla" ? (
             <>
-              <TextField
-                margin="dense"
-                name="departmentId"
-                label="Department ID"
-                type="text"
-                fullWidth
-                variant="outlined"
-                value={formData.departmentID}
-                onChange={handleInputChange}
-                error={!!formErrors.departmentID}
-                helperText={formErrors.departmentID}
-                sx={{
-                  "& .MuiInputBase-input": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
-                  "& .MuiInputLabel-root": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
-                  "& .MuiOutlinedInput-root": {
-                    "& fieldset": { borderColor: NAVY },
-                    "&:hover fieldset": { borderColor: SELECT_BG },
-                    "&.Mui-focused fieldset": { borderColor: SELECT_BG },
-                  },
-                }}
-              />
-              <TextField
-                margin="dense"
-                name="name"
-                label="Department Name"
-                type="text"
-                fullWidth
-                variant="outlined"
-                value={formData.name}
-                onChange={handleInputChange}
-                error={!!formErrors.name}
-                helperText={formErrors.name}
-                sx={{
-                  "& .MuiInputBase-input": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
-                  "& .MuiInputLabel-root": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
-                  "& .MuiOutlinedInput-root": {
-                    "& fieldset": { borderColor: NAVY },
-                    "&:hover fieldset": { borderColor: SELECT_BG },
-                    "&.Mui-focused fieldset": { borderColor: SELECT_BG },
-                  },
-                }}
-              />
-              <TextField
-                margin="dense"
-                name="services"
-                label="Services (comma-separated)"
-                type="text"
-                fullWidth
-                variant="outlined"
-                multiline
-                rows={3}
-                value={formData.services}
-                onChange={handleInputChange}
-                error={!!formErrors.services}
-                helperText={formErrors.services}
-                sx={{
-                  "& .MuiInputBase-input": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
-                  "& .MuiInputLabel-root": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
-                  "& .MuiOutlinedInput-root": {
-                    "& fieldset": { borderColor: NAVY },
-                    "&:hover fieldset": { borderColor: SELECT_BG },
-                    "&.Mui-focused fieldset": { borderColor: SELECT_BG },
-                  },
-                }}
-              />
-            </>
-          ) : (
-            <>
-              <Typography sx={{ color: NAVY, mb: 1, fontSize: { xs: "0.8rem", sm: "0.9rem" } }}>
-                Priority: {formData.slaPriority}
-              </Typography>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 1 }}>
+                <Typography sx={{ color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } }}>
+                  {orgPrefix}
+                </Typography>
+                <TextField
+                  margin="dense"
+                  name="slaPriority"
+                  label="Priority"
+                  type="text"
+                  fullWidth
+                  variant="outlined"
+                  value={formData.slaPriority}
+                  InputProps={{ readOnly: true }}
+                  // Priority is autofill and readonly
+                  sx={{
+                    "& .MuiInputBase-input": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
+                    "& .MuiInputLabel-root": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
+                    "& .MuiOutlinedInput-root": {
+                      "& fieldset": { borderColor: NAVY },
+                      "&:hover fieldset": { borderColor: SELECT_BG },
+                      "&.Mui-focused fieldset": { borderColor: SELECT_BG },
+                    },
+                  }}
+                />
+              </Box>
               <Box sx={{ display: "flex", gap: 1, mt: 2 }}>
                 <Select
                   name="days"
@@ -553,6 +676,79 @@ const Manage = ({ manageType, organization, NAVY, WHITE, LIGHT_GREY, SELECT_BG }
                 </Typography>
               )}
             </>
+          ) : (
+            <>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 1 }}>
+                <Typography sx={{ color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } }}>
+                  {orgPrefix}
+                </Typography>
+                <TextField
+                  margin="dense"
+                  name="departmentId"
+                  label="Department ID Suffix"
+                  type="text"
+                  fullWidth
+                  variant="outlined"
+                  value={formData.departmentId}
+                  onChange={handleInputChange}
+                  error={!!formErrors.departmentId}
+                  helperText={formErrors.departmentId || "Enter the department ID suffix (e.g., IT)"}
+                  sx={{
+                    "& .MuiInputBase-input": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
+                    "& .MuiInputLabel-root": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
+                    "& .MuiOutlinedInput-root": {
+                      "& fieldset": { borderColor: NAVY },
+                      "&:hover fieldset": { borderColor: SELECT_BG },
+                      "&.Mui-focused fieldset": { borderColor: SELECT_BG },
+                    },
+                  }}
+                />
+              </Box>
+              <TextField
+                margin="dense"
+                name="name"
+                label="Department Name"
+                type="text"
+                fullWidth
+                variant="outlined"
+                value={formData.name}
+                onChange={handleInputChange}
+                error={!!formErrors.name}
+                helperText={formErrors.name}
+                sx={{
+                  "& .MuiInputBase-input": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
+                  "& .MuiInputLabel-root": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
+                  "& .MuiOutlinedInput-root": {
+                    "& fieldset": { borderColor: NAVY },
+                    "&:hover fieldset": { borderColor: SELECT_BG },
+                    "&.Mui-focused fieldset": { borderColor: SELECT_BG },
+                  },
+                }}
+              />
+              <TextField
+                margin="dense"
+                name="services"
+                label="Services (comma-separated)"
+                type="text"
+                fullWidth
+                variant="outlined"
+                multiline
+                rows={3}
+                value={formData.services}
+                onChange={handleInputChange}
+                error={!!formErrors.services}
+                helperText={formErrors.services}
+                sx={{
+                  "& .MuiInputBase-input": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
+                  "& .MuiInputLabel-root": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
+                  "& .MuiOutlinedInput-root": {
+                    "& fieldset": { borderColor: NAVY },
+                    "&:hover fieldset": { borderColor: SELECT_BG },
+                    "&.Mui-focused fieldset": { borderColor: SELECT_BG },
+                  },
+                }}
+              />
+            </>
           )}
         </DialogContent>
         <DialogActions>
@@ -560,14 +756,14 @@ const Manage = ({ manageType, organization, NAVY, WHITE, LIGHT_GREY, SELECT_BG }
             onClick={() => {
               setDialogOpen(false);
               setEditingItem(null);
-              setFormData({ slaPriority: "", days: 0, hours: 0, minutes: 0, departmentID: "", name: "", services: "" });
+              setFormData({ slaPriority: "", days: 0, hours: 0, minutes: 0, departmentId: "", name: "", services: "" });
             }}
             sx={{ color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" }, minWidth: { xs: 80, sm: 100 } }}
           >
             Cancel
           </Button>
           <Button
-            onClick={manageType === "department" ? handleEditItem : handleEditItem}
+            onClick={manageType === "department" ? handleEditDepartment : handleEditItem}
             variant="contained"
             sx={{
               color: NAVY,
@@ -586,7 +782,7 @@ const Manage = ({ manageType, organization, NAVY, WHITE, LIGHT_GREY, SELECT_BG }
         open={addDialogOpen}
         onClose={() => {
           setAddDialogOpen(false);
-          setFormData({ slaPriority: "", days: 0, hours: 0, minutes: 0, departmentID: "", name: "", services: "" });
+          setFormData({ slaPriority: "", days: 0, hours: 0, minutes: 0, departmentId: "", name: "", services: "" });
         }}
         maxWidth="sm"
         fullWidth
@@ -602,27 +798,32 @@ const Manage = ({ manageType, organization, NAVY, WHITE, LIGHT_GREY, SELECT_BG }
           Add New Department
         </DialogTitle>
         <DialogContent>
-          <TextField
-            margin="dense"
-            name="departmentId"
-            label="Department Id"
-            type="text"
-            fullWidth
-            variant="outlined"
-            value={formData.departmentId}
-            onChange={handleInputChange}
-            error={!!formErrors.departmentId}
-            helperText={formErrors.departmentId}
-            sx={{
-              "& .MuiInputBase-input": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
-              "& .MuiInputLabel-root": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
-              "& .MuiOutlinedInput-root": {
-                "& fieldset": { borderColor: NAVY },
-                "&:hover fieldset": { borderColor: SELECT_BG },
-                "&.Mui-focused fieldset": { borderColor: SELECT_BG },
-              },
-            }}
-          />
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 1 }}>
+            <Typography sx={{ color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } }}>
+              {orgPrefix}
+            </Typography>
+            <TextField
+              margin="dense"
+              name="departmentId"
+              label="Department ID Suffix"
+              type="text"
+              fullWidth
+              variant="outlined"
+              value={formData.departmentId}
+              onChange={handleInputChange}
+              error={!!formErrors.departmentId}
+              helperText={formErrors.departmentId || "Enter the department ID suffix (e.g., IT)"}
+              sx={{
+                "& .MuiInputBase-input": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
+                "& .MuiInputLabel-root": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
+                "& .MuiOutlinedInput-root": {
+                  "& fieldset": { borderColor: NAVY },
+                  "&:hover fieldset": { borderColor: SELECT_BG },
+                  "&.Mui-focused fieldset": { borderColor: SELECT_BG },
+                },
+              }}
+            />
+          </Box>
           <TextField
             margin="dense"
             name="name"
@@ -672,7 +873,7 @@ const Manage = ({ manageType, organization, NAVY, WHITE, LIGHT_GREY, SELECT_BG }
           <Button
             onClick={() => {
               setAddDialogOpen(false);
-              setFormData({ slaPriority: "", days: 0, hours: 0, minutes: 0, departmentID: "", name: "", services: "" });
+              setFormData({ slaPriority: "", days: 0, hours: 0, minutes: 0, departmentId: "", name: "", services: "" });
             }}
             sx={{ color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" }, minWidth: { xs: 80, sm: 100 } }}
           >
@@ -697,5 +898,4 @@ const Manage = ({ manageType, organization, NAVY, WHITE, LIGHT_GREY, SELECT_BG }
     </Box>
   );
 };
-
 export default Manage;

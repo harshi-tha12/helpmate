@@ -4,25 +4,24 @@ import {
   ListItemIcon, ListItemText, Divider, TextField, Collapse,
   Alert, Table, TableContainer, TableBody, TableCell,
   TableHead, TableRow, Card, CardContent, Link, Stack,
-  Avatar, IconButton, InputAdornment, Switch, FormControlLabel,MenuItem ,
-  Drawer, IconButton as MuiIconButton, Dialog, DialogTitle, DialogContent, DialogActions,
+  Avatar, IconButton, InputAdornment, Switch, FormControlLabel, MenuItem,
+  Drawer, Dialog, DialogTitle, DialogContent, DialogActions, CardHeader,
 } from '@mui/material';
 import DashboardIcon from '@mui/icons-material/Dashboard';
+import AddBusinessIcon from '@mui/icons-material/AddBusiness';
 import ListIcon from '@mui/icons-material/List';
 import SettingsIcon from '@mui/icons-material/Settings';
-import AddBusinessIcon from '@mui/icons-material/AddBusiness';
 import InstagramIcon from '@mui/icons-material/Instagram';
 import TwitterIcon from '@mui/icons-material/Twitter';
 import GitHubIcon from '@mui/icons-material/GitHub';
-import GroupIcon from '@mui/icons-material/Group';
-import SupervisorAccountIcon from '@mui/icons-material/SupervisorAccount';
 import PhotoCamera from '@mui/icons-material/PhotoCamera';
 import LogoutIcon from '@mui/icons-material/Logout';
 import Visibility from '@mui/icons-material/Visibility';
+import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
-import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import MenuIcon from '@mui/icons-material/Menu';
+import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined';
 import { doc, setDoc, getDoc, collection, getDocs, updateDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../firebase';
 import {
@@ -30,87 +29,35 @@ import {
 } from 'recharts';
 import Select from 'react-select';
 import { Country, State, City } from 'country-state-city';
+import DashboardContent from './graph';
+import { useNavigate } from 'react-router-dom';
 
-const SIDEBAR_WIDTH = 260;
-const CLOUDINARY_URL = "https://api.cloudinary.com/v1_1/diogwsroa/upload";
-const UPLOAD_PRESET = "helpmate_upload";
+const SIDEBAR_WIDTH = 300;
+
+const isValidPassword = (password) => {
+  if (password.length < 6 || password.length > 15) return false;
+  if (!/[A-Z]/.test(password)) return false;
+  if (!/\d/.test(password)) return false;
+  if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) return false;
+  return true;
+};
+
+const isValidUsername = (username) => {
+  if (username.length < 10) return false;
+  if (!/[a-zA-Z]/.test(username)) return false;
+  if (!/^[a-zA-Z0-9._]+$/.test(username)) return false;
+  return true;
+};
 
 const sidebarItems = [
   { text: 'Dashboard', icon: <DashboardIcon /> },
   { text: 'Add Organization', icon: <AddBusinessIcon /> },
   { text: 'Organization List', icon: <ListIcon /> },
   { text: 'Settings', icon: <SettingsIcon /> },
+  { text: 'Logout', icon: <LogoutOutlinedIcon /> },
 ];
 
-// --- CHART COMPONENT ---
-const OrganizationFieldBarChart = ({ organizations, themeMode }) => {
-  const fieldCount = {};
-  organizations.forEach((org) => {
-    const field = org.field || 'Unknown';
-    fieldCount[field] = (fieldCount[field] || 0) + 1;
-  });
-  const data = Object.entries(fieldCount).map(([field, count]) => ({
-    field,
-    count,
-  }));
 
-  if (data.length === 0) {
-    return (
-      <Paper sx={{ p: { xs: 2, sm: 3 }, mb: 4, borderRadius: 3, boxShadow: 2, bgcolor: themeMode === 'dark' ? '#222' : '#fff' }}>
-        <Typography>No data to display.</Typography>
-      </Paper>
-    );
-  }
-
-  return (
-    <Paper sx={{
-      p: { xs: 2, sm: 3 }, mb: 4, borderRadius: 3, boxShadow: 2,
-      width: { xs: '100%', sm: '90%', md: '80%' }, maxWidth: 600, mx: 'auto',
-      bgcolor: themeMode === 'dark' ? '#222' : '#fff'
-    }}>
-      <Typography variant="h6" sx={{ mb: 2, color: '#001F54', fontWeight: 600, fontSize: { xs: '1rem', sm: '1.25rem' } }}>
-        Organizations by Field
-      </Typography>
-      <ResponsiveContainer width="100%" height={Math.max(200, 50 + data.length * 40)}>
-        <BarChart data={data} layout="vertical" margin={{ left: 10, right: 10, top: 10, bottom: 10 }}>
-          <CartesianGrid strokeDasharray="2 2" />
-          <XAxis type="number" allowDecimals={false} />
-          <YAxis type="category" dataKey="field" width={100} fontSize={12} />
-          <Tooltip />
-          <Bar dataKey="count" fill="#2196f3" barSize={30} radius={[8, 8, 8, 8]} />
-        </BarChart>
-      </ResponsiveContainer>
-    </Paper>
-  );
-};
-
-// --- STATS CARDS ---
-const StatCard = ({ icon, label, value, color, themeMode }) => (
-  <Paper
-    sx={{
-      p: { xs: 2, sm: 3 },
-      minWidth: { xs: 160, sm: 200 },
-      background: themeMode === 'dark'
-        ? 'linear-gradient(135deg, #263238 80%, #111)'
-        : 'linear-gradient(135deg, #e3f2fd 80%, #ffffff)',
-      borderRadius: 3,
-      boxShadow: 2,
-      display: 'flex',
-      alignItems: 'center',
-      gap: 2,
-    }}
-  >
-    <Box sx={{ color: color, fontSize: { xs: 32, sm: 40 } }}>{icon}</Box>
-    <Box>
-      <Typography variant="h5" sx={{ fontWeight: 700, color: themeMode === 'dark' ? '#fff' : '#111', fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
-        {value}
-      </Typography>
-      <Typography variant="subtitle2" sx={{ color: themeMode === 'dark' ? '#bbb' : '#555', fontSize: { xs: '0.75rem', sm: '0.875rem' } }}>
-        {label}
-      </Typography>
-    </Box>
-  </Paper>
-);
 
 
 // --- ADD ORGANIZATION ---
@@ -133,6 +80,8 @@ const AddOrganizationContent = ({
     state: '',
     country: '',
   });
+  const [usernameError, setUsernameError] = useState('');
+  const [approveUsernameError, setApproveUsernameError] = useState('');
 
   const categories = [
     'Technology',
@@ -174,16 +123,42 @@ const AddOrganizationContent = ({
     setApproveDialogOpen(false);
     setApproveForm({ adminUsername: '', adminPassword: '' });
     setApproveError('');
+    setApproveUsernameError('');
   };
 
   const handleApproveFormChange = (e) => {
     setApproveForm({ ...approveForm, [e.target.name]: e.target.value });
     setApproveError('');
+    setApproveUsernameError('');
+  };
+
+  const checkApproveUsername = async (username) => {
+    setApproveUsernameError('');
+    if (!username) return;
+    if (!isValidUsername(username)) {
+      setApproveUsernameError('Username must be 10 or more characters long, include letters, and can only use numbers, periods, or underscores.');
+      return;
+    }
+    const adminRef = doc(db, 'Users', username.toLowerCase());
+    const adminSnap = await getDoc(adminRef);
+    if (adminSnap.exists()) {
+      setApproveUsernameError('Username already exists.');
+    }
   };
 
   const handleApproveSubmit = async () => {
     if (!approveForm.adminUsername || !approveForm.adminPassword) {
       setApproveError('Please provide both username and password.');
+      return;
+    }
+
+    if (!isValidUsername(approveForm.adminUsername)) {
+      setApproveError('Username must be 10 or more characters long, include letters, and can only use numbers, periods, or underscores.');
+      return;
+    }
+
+    if (!isValidPassword(approveForm.adminPassword)) {
+      setApproveError('Password must be 6-15 characters long, include at least one uppercase letter, one number, and one special character.');
       return;
     }
 
@@ -202,10 +177,24 @@ const AddOrganizationContent = ({
     }
   };
 
+  const checkUsername = async (username) => {
+    setUsernameError('');
+    if (!username) return;
+    if (!isValidUsername(username)) {
+      setUsernameError('Username must be 10 or more characters long, include letters, and can only use numbers, periods, or underscores.');
+      return;
+    }
+    const adminRef = doc(db, 'Users', username.toLowerCase());
+    const adminSnap = await getDoc(adminRef);
+    if (adminSnap.exists()) {
+      setUsernameError('Username already exists.');
+    }
+  };
+
   return (
     <Box>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, px: { xs: 1, sm: 0 } }}>
-        <Typography variant="h6" sx={{ color: navyText, fontSize: { xs: '1rem', sm: '1.25rem' } }}>
+        <Typography variant="h6" sx={{ color: navyText, fontWeight: 600, fontSize: { xs: '1rem', sm: '1.25rem' } }}>
           Add Organization
         </Typography>
         <Button
@@ -213,13 +202,22 @@ const AddOrganizationContent = ({
           startIcon={<AddBusinessIcon />}
           color="primary"
           onClick={() => setShowOrgAdminForm(show => !show)}
-          sx={{ borderRadius: 2, textTransform: 'none', px: { xs: 2, sm: 3 }, py: 1, minHeight: 48 }}
+          sx={{
+            borderRadius: 2,
+            textTransform: 'none',
+            px: { xs: 2, sm: 3 },
+            py: 1,
+            minHeight: 48,
+            fontWeight: 600,
+            bgcolor: '#1976d2',
+            '&:hover': { bgcolor: '#1565c0' },
+          }}
           aria-label={showOrgAdminForm ? 'Hide Form' : 'Create Organization'}
         >
           {showOrgAdminForm ? 'Hide Form' : 'Create Organization'}
         </Button>
       </Box>
-      <Typography variant="h6" sx={{ mb: 2, color: navyText, fontSize: { xs: '1rem', sm: '1.25rem' } }}>
+      <Typography variant="h6" sx={{ mb: 2, color: navyText, fontWeight: 600, fontSize: { xs: '1rem', sm: '1.25rem' } }}>
         Pending Access Requests
       </Typography>
       {accessRequests.length === 0 ? (
@@ -231,7 +229,18 @@ const AddOrganizationContent = ({
           {accessRequests.map((request) => (
             <Card
               key={request.requestId}
-              sx={{ mb: 2, p: 2, borderRadius: 3, boxShadow: 2, cursor: 'pointer' }}
+              sx={{
+                mb: 2,
+                p: 2,
+                borderRadius: 3,
+                boxShadow: 2,
+                cursor: 'pointer',
+                transition: 'transform 0.3s ease, box-shadow 0.3s ease',
+                '&:hover': {
+                  transform: 'translateY(-4px)',
+                  boxShadow: 4,
+                },
+              }}
               onClick={() => handleRequestClick(request)}
             >
               <Typography variant="subtitle1" sx={{ fontWeight: 600, color: navyText }}>
@@ -252,9 +261,13 @@ const AddOrganizationContent = ({
       )}
       <Collapse in={showOrgAdminForm}>
         <Paper sx={{
-          p: { xs: 2, sm: 3, md: 4 }, mb: 4,
+          p: { xs: 2, sm: 3, md: 4 },
+          mb: 4,
           background: 'linear-gradient(135deg, #e3f2fd, #ffffff)',
-          borderRadius: 3, boxShadow: 3, maxWidth: { xs: '100%', sm: 900 }, mx: 'auto',
+          borderRadius: 3,
+          boxShadow: 3,
+          maxWidth: { xs: '100%', sm: 900 },
+          mx: 'auto',
         }}>
           <Typography variant="h5" sx={{ mb: 3, color: navyText, fontWeight: 600, fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
             Add Organization
@@ -313,6 +326,7 @@ const AddOrganizationContent = ({
                 onChange={handleFormChange}
                 InputProps={{ style: { backgroundColor: '#f5faff', minHeight: 48 }, 'aria-label': 'Phone Number' }}
                 InputLabelProps={{ required: true }}
+                type="tel"
               />
             </Grid>
             <Grid item xs={12}>
@@ -329,7 +343,7 @@ const AddOrganizationContent = ({
           <Typography variant="subtitle1" sx={{ mt: 3, mb: 2, color: navyText, fontWeight: 600, fontSize: { xs: '0.9rem', sm: '1rem' } }}>
             Address Details
           </Typography>
-          <Grid container spacing={2} sx={{ position: 'relative', zIndex: 0 }} >
+          <Grid container spacing={2} sx={{ position: 'relative', zIndex: 0 }}>
             <Grid item xs={12} sm={6}>
               <TextField
                 name="address"
@@ -344,7 +358,7 @@ const AddOrganizationContent = ({
                 }}
                 InputLabelProps={{ required: true }}
               />
-              <label style={{ fontSize: '0.875rem', fontWeight: 500, marginBottom: 4 }}>City</label>
+              <label style={{ fontSize: '0.875rem', fontWeight: 500, marginBottom: 4, color: navyText }}>City</label>
               <Select
                 options={cityOptions}
                 value={selectedCity}
@@ -364,7 +378,7 @@ const AddOrganizationContent = ({
               />
             </Grid>
             <Grid item xs={12} sm={6}>
-              <label style={{ fontSize: '0.875rem', fontWeight: 500, marginBottom: 4 }}>State</label>
+              <label style={{ fontSize: '0.875rem', fontWeight: 500, marginBottom: 4, color: navyText }}>State</label>
               <Select
                 options={stateOptions}
                 value={selectedState}
@@ -383,7 +397,7 @@ const AddOrganizationContent = ({
                   }),
                 }}
               />
-              <label style={{ fontSize: '0.875rem', fontWeight: 500, marginTop: 16, display: 'block' }}>
+              <label style={{ fontSize: '0.875rem', fontWeight: 500, marginTop: 16, display: 'block', color: navyText }}>
                 Country
               </label>
               <Select
@@ -439,6 +453,7 @@ const AddOrganizationContent = ({
                 onChange={handleFormChange}
                 InputProps={{ style: { backgroundColor: '#f5faff', minHeight: 48 }, 'aria-label': 'Admin Phone Number' }}
                 InputLabelProps={{ required: true }}
+                type="tel"
               />
               <TextField
                 name="adminUsername"
@@ -446,8 +461,11 @@ const AddOrganizationContent = ({
                 fullWidth sx={{ mb: 2 }}
                 value={orgForm.adminUsername}
                 onChange={handleFormChange}
+                onBlur={(e) => checkUsername(e.target.value)}
                 InputProps={{ style: { backgroundColor: '#f5faff', minHeight: 48 }, 'aria-label': 'Admin Username' }}
                 InputLabelProps={{ required: true }}
+                error={!!usernameError}
+                helperText={usernameError || 'Username must be 10 or more characters long, include letters, and can only use numbers, periods, or underscores.'}
               />
             </Grid>
             <Grid item xs={12}>
@@ -460,6 +478,7 @@ const AddOrganizationContent = ({
                 onChange={handleFormChange}
                 InputProps={{ style: { backgroundColor: '#f5faff', minHeight: 48 }, 'aria-label': 'Admin Password' }}
                 InputLabelProps={{ required: true }}
+                helperText="Password must be 6-15 characters long, include at least one uppercase letter, one number, and one special character."
               />
             </Grid>
           </Grid>
@@ -468,7 +487,16 @@ const AddOrganizationContent = ({
               variant="contained"
               color="primary"
               size="large"
-              sx={{ px: { xs: 3, sm: 5 }, py: 1, minHeight: 48, borderRadius: 2, textTransform: 'none' }}
+              sx={{
+                px: { xs: 3, sm: 5 },
+                py: 1,
+                minHeight: 48,
+                borderRadius: 2,
+                textTransform: 'none',
+                fontWeight: 600,
+                bgcolor: '#1976d2',
+                '&:hover': { bgcolor: '#1565c0' },
+              }}
               onClick={() => handleCreateOrgAndAdmin({ ...orgForm, ...localOrgForm })}
               aria-label="Create Organization"
             >
@@ -502,7 +530,7 @@ const AddOrganizationContent = ({
             onClick={() => setOpenDialog(false)}
             variant="contained"
             color="primary"
-            sx={{ borderRadius: 2, textTransform: 'none' }}
+            sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600 }}
             aria-label="Close"
           >
             Close
@@ -563,7 +591,10 @@ const AddOrganizationContent = ({
               sx={{ mb: 2 }}
               value={approveForm.adminUsername}
               onChange={handleApproveFormChange}
+              onBlur={(e) => checkApproveUsername(e.target.value)}
               InputProps={{ style: { backgroundColor: '#f5faff', minHeight: 48 }, 'aria-label': 'Admin Username' }}
+              error={!!approveUsernameError}
+              helperText={approveUsernameError || 'Username must be 10 or more characters long, include letters, and can only use numbers, periods, or underscores.'}
             />
             <TextField
               name="adminPassword"
@@ -574,6 +605,7 @@ const AddOrganizationContent = ({
               value={approveForm.adminPassword}
               onChange={handleApproveFormChange}
               InputProps={{ style: { backgroundColor: '#f5faff', minHeight: 48 }, 'aria-label': 'Admin Password' }}
+              helperText="Password must be 6-15 characters long, include at least one uppercase letter, one number, and one special character."
             />
             {approveError && <Alert severity="error" sx={{ mb: 2, fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>{approveError}</Alert>}
           </Box>
@@ -581,7 +613,7 @@ const AddOrganizationContent = ({
         <DialogActions>
           <Button
             onClick={handleApproveDialogClose}
-            sx={{ color: '#001F54', textTransform: 'none' }}
+            sx={{ color: '#001F54', textTransform: 'none', fontWeight: 600 }}
             aria-label="Cancel"
           >
             Cancel
@@ -590,7 +622,7 @@ const AddOrganizationContent = ({
             onClick={handleApproveSubmit}
             variant="contained"
             color="primary"
-            sx={{ borderRadius: 2, textTransform: 'none' }}
+            sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600 }}
             aria-label="Add Organization"
           >
             Add Organization
@@ -606,19 +638,21 @@ const OrganizationListContent = ({ organizations, selectedOrg, setSelectedOrg })
   const navyText = '#001F54';
   return (
     <Box sx={{ width: { xs: '100%', sm: '95%' }, maxWidth: { xs: '100%', md: 900 }, mx: 'auto' }}>
-      <Typography variant="h6" sx={{ mb: 2, color: navyText, fontSize: { xs: '1rem', sm: '1.25rem' } }}>
+      <Typography variant="h6" sx={{ mb: 2, color: navyText, fontWeight: 600, fontSize: { xs: '1rem', sm: '1.25rem' } }}>
         Organization List
       </Typography>
       {selectedOrg ? (
         <Card sx={{
           maxWidth: { xs: '100%', sm: 800 }, mx: 'auto', p: { xs: 2, sm: 3 },
           borderRadius: 3, boxShadow: 3, background: 'linear-gradient(135deg, #e3f2fd, #ffffff)',
+          transition: 'transform 0.3s ease',
+          '&:hover': { transform: 'translateY(-4px)' },
         }}>
           <CardContent>
             <Typography variant="h5" sx={{ mb: 3, color: navyText, fontWeight: 600, fontSize: { xs: '1.25rem', sm: '1.5rem' } }}>
               {selectedOrg.orgName}
             </Typography>
-            <Typography variant="subtitle.horizontal-line1" sx={{ mb: 2, color: navyText, fontWeight: 600, fontSize: { xs: '0.9rem', sm: '1rem' } }}>
+            <Typography variant="subtitle1" sx={{ mb: 2, color: navyText, fontWeight: 600, fontSize: { xs: '0.9rem', sm: '1rem' } }}>
               Basic Information
             </Typography>
             <Grid container spacing={2}>
@@ -669,7 +703,14 @@ const OrganizationListContent = ({ organizations, selectedOrg, setSelectedOrg })
             <Button
               variant="outlined"
               color="primary"
-              sx={{ mt: 3, borderRadius: 2, textTransform: 'none', minHeight: 48, px: { xs: 2, sm: 3 } }}
+              sx={{
+                mt: 3,
+                borderRadius: 2,
+                textTransform: 'none',
+                minHeight: 48,
+                px: { xs: 2, sm: 3 },
+                fontWeight: 600,
+              }}
               onClick={() => setSelectedOrg(null)}
               aria-label="Back to List"
             >
@@ -689,10 +730,21 @@ const OrganizationListContent = ({ organizations, selectedOrg, setSelectedOrg })
                 {organizations.map((org) => (
                   <Card
                     key={org.orgName}
-                    sx={{ mb: 2, p: 2, borderRadius: 3, boxShadow: 2, cursor: 'pointer' }}
+                    sx={{
+                      mb: 2,
+                      p: 2,
+                      borderRadius: 3,
+                      boxShadow: 2,
+                      cursor: 'pointer',
+                      transition: 'transform 0.3s ease, box-shadow 0.3s ease',
+                      '&:hover': {
+                        transform: 'translateY(-4px)',
+                        boxShadow: 4,
+                      },
+                    }}
                     onClick={() => setSelectedOrg(org)}
                   >
-                    <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{org.orgName}</Typography>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 600, color: navyText }}>{org.orgName}</Typography>
                     <Typography variant="body2" sx={{ color: '#555' }}>Email: {org.email}</Typography>
                     <Typography variant="body2" sx={{ color: '#555' }}>Phone: {org.phoneNumber}</Typography>
                     <Typography variant="body2" sx={{ color: '#555' }}>
@@ -710,7 +762,7 @@ const OrganizationListContent = ({ organizations, selectedOrg, setSelectedOrg })
                 ))}
               </Box>
               <Box sx={{ display: { xs: 'none', md: 'block' }, overflowX: 'auto' }}>
-                <TableContainer component={Paper} elevation={3}>
+                <TableContainer component={Paper} elevation={3} sx={{ borderRadius: 3 }}>
                   <Table>
                     <TableHead sx={{ backgroundColor: '#e3f2fd' }}>
                       <TableRow>
@@ -727,7 +779,7 @@ const OrganizationListContent = ({ organizations, selectedOrg, setSelectedOrg })
                         <TableRow
                           key={org.orgName}
                           hover
-                          sx={{ cursor: 'pointer' }}
+                          sx={{ cursor: 'pointer', '&:hover': { backgroundColor: '#f5faff' } }}
                           onClick={() => setSelectedOrg(org)}
                         >
                           <TableCell>{org.orgName}</TableCell>
@@ -775,7 +827,8 @@ const SettingsContent = ({
   handlePhotoUpload,
   themeMode,
   setThemeMode,
-  handleLogout
+  handleLogout,
+  setLogoutDialogOpen
 }) => {
   const [openProfile, setOpenProfile] = useState(true);
   const [openPassword, setOpenPassword] = useState(false);
@@ -790,7 +843,9 @@ const SettingsContent = ({
 
       <Paper sx={{
         p: 0, mb: 3, borderRadius: 3, boxShadow: 2,
-        bgcolor: themeMode === 'dark' ? '#222' : '#f9f9f9'
+        bgcolor: themeMode === 'dark' ? '#222' : '#f9f9f9',
+        transition: 'transform 0.3s ease',
+        '&:hover': { transform: 'translateY(-2px)' },
       }}>
         <Box
           sx={{
@@ -817,7 +872,7 @@ const SettingsContent = ({
               <Grid item>
                 <Box sx={{ position: 'relative', width: { xs: 60, sm: 72 }, height: { xs: 60, sm: 72 } }}>
                   <Avatar
-                    src={superAdminInfo.photoURL}
+                    src={superAdminInfo.profilepic}
                     alt={superAdminInfo.name}
                     sx={{ width: '100%', height: '100%', border: '2px solid #1976d2' }}
                   />
@@ -873,7 +928,15 @@ const SettingsContent = ({
               variant="contained"
               color="primary"
               onClick={handleProfileSave}
-              sx={{ mt: 2, fontWeight: 600, px: { xs: 3, sm: 4 }, minHeight: 48 }}
+              sx={{
+                mt: 2,
+                fontWeight: 600,
+                px: { xs: 3, sm: 4 },
+                minHeight: 48,
+                borderRadius: 2,
+                bgcolor: '#1976d2',
+                '&:hover': { bgcolor: '#1565c0' },
+              }}
               disabled={uploading}
               aria-label="Save Profile"
             >
@@ -885,7 +948,9 @@ const SettingsContent = ({
 
       <Paper sx={{
         p: 0, mb: 3, borderRadius: 3, boxShadow: 2,
-        bgcolor: themeMode === 'dark' ? '#222' : '#f9f9f9'
+        bgcolor: themeMode === 'dark' ? '#222' : '#f9f9f9',
+        transition: 'transform 0.3s ease',
+        '&:hover': { transform: 'translateY(-2px)' },
       }}>
         <Box
           sx={{
@@ -976,6 +1041,7 @@ const SettingsContent = ({
                 style: { backgroundColor: themeMode === 'dark' ? '#111' : '#f5faff', minHeight: 48, color: themeMode === 'dark' ? '#fff' : undefined },
                 'aria-label': 'Confirm New Password'
               }}
+              helperText="Password must be 6-15 characters long, include at least one uppercase letter, one number, and one special character."
             />
             {passwordSaveError && <Alert severity="error" sx={{ mt: 2, fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>{passwordSaveError}</Alert>}
             {passwordSaveMsg && <Alert severity="success" sx={{ mt: 2, fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>{passwordSaveMsg}</Alert>}
@@ -983,7 +1049,15 @@ const SettingsContent = ({
               variant="contained"
               color="primary"
               onClick={handlePasswordSave}
-              sx={{ mt: 2, fontWeight: 600, px: { xs: 3, sm: 4 }, minHeight: 48 }}
+              sx={{
+                mt: 2,
+                fontWeight: 600,
+                px: { xs: 3, sm: 4 },
+                minHeight: 48,
+                borderRadius: 2,
+                bgcolor: '#1976d2',
+                '&:hover': { bgcolor: '#1565c0' },
+              }}
               aria-label="Change Password"
             >
               Change Password
@@ -994,7 +1068,9 @@ const SettingsContent = ({
 
       <Paper sx={{
         p: 0, mb: 3, borderRadius: 3, boxShadow: 2,
-        bgcolor: themeMode === 'dark' ? '#222' : '#f9f9f9'
+        bgcolor: themeMode === 'dark' ? '#222' : '#f9f9f9',
+        transition: 'transform 0.3s ease',
+        '&:hover': { transform: 'translateY(-2px)' },
       }}>
         <Box
           sx={{
@@ -1033,7 +1109,9 @@ const SettingsContent = ({
 
       <Paper sx={{
         p: 0, mb: 3, borderRadius: 3, boxShadow: 2,
-        bgcolor: themeMode === 'dark' ? '#222' : '#f9f9f9'
+        bgcolor: themeMode === 'dark' ? '#222' : '#f9f9f9',
+        transition: 'transform 0.3s ease',
+        '&:hover': { transform: 'translateY(-2px)' },
       }}>
         <Box
           sx={{
@@ -1060,8 +1138,13 @@ const SettingsContent = ({
               variant="outlined"
               color="error"
               startIcon={<LogoutIcon />}
-              onClick={handleLogout}
-              sx={{ fontWeight: 600, px: { xs: 3, sm: 4 }, minHeight: 48 }}
+              onClick={() => setLogoutDialogOpen(true)}
+              sx={{
+                fontWeight: 600,
+                px: { xs: 3, sm: 4 },
+                minHeight: 48,
+                borderRadius: 2,
+              }}
               aria-label="Logout"
             >
               Logout
@@ -1084,6 +1167,7 @@ const Footer = ({ themeMode }) => {
         p: { xs: 2, sm: 3, md: 4 },
         width: '100%',
         mt: 'auto',
+        borderTop: '1px solid #444',
       }}
     >
       <Grid container spacing={{ xs: 2, sm: 3 }}>
@@ -1165,7 +1249,7 @@ const Footer = ({ themeMode }) => {
 const SuperAdminDashboard = () => {
   const [themeMode, setThemeMode] = useState('light');
   const [superAdminInfo, setSuperAdminInfo] = useState({
-    name: '', email: '', username: '', photoURL: '', password: '', docId: null,
+    name: '', email: '', username: '', profilepic: '', password: '', docId: null,
   });
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [profileSaveMsg, setProfileSaveMsg] = useState('');
@@ -1191,6 +1275,14 @@ const SuperAdminDashboard = () => {
   const [adminCount, setAdminCount] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [accessRequests, setAccessRequests] = useState([]);
+  const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
+  const navigate = useNavigate(); // Initialize useNavigate
+  const toBase64 = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = error => reject(error);
+  });
 
   useEffect(() => {
     const fetchSuperAdmin = async () => {
@@ -1204,7 +1296,7 @@ const SuperAdminDashboard = () => {
             name: d.adminName || d.name || '',
             email: d.adminEmail || d.email || '',
             username: d.username || '',
-            photoURL: d.photoURL || '',
+            profilepic: d.profilepic || '',
             password: d.password || '',
             docId: docu.id
           });
@@ -1212,7 +1304,7 @@ const SuperAdminDashboard = () => {
         }
       });
       setLoadingProfile(false);
-      if (!found) setSuperAdminInfo({ name: '', email: '', username: '', photoURL: '', password: '', docId: null });
+      if (!found) setSuperAdminInfo({ name: '', email: '', username: '', profilepic: '', password: '', docId: null });
     };
 
     const fetchAccessRequests = async () => {
@@ -1258,6 +1350,16 @@ const SuperAdminDashboard = () => {
     setProfileSaveError('');
   };
 
+  const handleLogout = () => {
+    setLogoutDialogOpen(true);
+  };
+
+  const confirmLogout = () => {
+    setLogoutDialogOpen(false);
+    localStorage.clear(); // Clear localStorage as per comment
+    navigate('/'); // Navigate to SplashScreen as per comment
+  };
+
   const handleProfileSave = async () => {
     setProfileSaveMsg('');
     setProfileSaveError('');
@@ -1274,7 +1376,7 @@ const SuperAdminDashboard = () => {
       await updateDoc(doc(db, 'Users', superAdminInfo.docId), {
         adminName: superAdminInfo.name,
         adminEmail: superAdminInfo.email,
-        photoURL: superAdminInfo.photoURL
+        profilepic: superAdminInfo.profilepic
       });
       setProfileSaveMsg('Profile saved successfully!');
     } catch (err) {
@@ -1289,25 +1391,16 @@ const SuperAdminDashboard = () => {
       setProfileSaveMsg('');
       setProfileSaveError('');
       const file = e.target.files[0];
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('upload_preset', UPLOAD_PRESET);
+      if (file.size > 750 * 1024) {
+        setProfileSaveError('File size exceeds 750KB limit.');
+        setUploading(false);
+        return;
+      }
       try {
-        const resp = await fetch(CLOUDINARY_URL, {
-          method: 'POST',
-          body: formData
-        });
-        const data = await resp.json();
-        if (data.secure_url) {
-          setSuperAdminInfo(prev => ({
-            ...prev,
-            photoURL: data.secure_url
-          }));
-        } else {
-          setProfileSaveError('Image upload failed.');
-        }
+        const base64 = await toBase64(file);
+        setSuperAdminInfo(prev => ({ ...prev, profilepic: base64 }));
       } catch (err) {
-        setProfileSaveError('Image upload error: ' + err.message);
+        setProfileSaveError('Image processing error: ' + err.message);
       }
       setUploading(false);
     }
@@ -1330,6 +1423,10 @@ const SuperAdminDashboard = () => {
       setPasswordSaveError('New password and confirm password do not match.');
       return;
     }
+    if (!isValidPassword(passwordValues.newPassword)) {
+      setPasswordSaveError('Password must be 6-15 characters long, include at least one uppercase letter, one number, and one special character.');
+      return;
+    }
     if (!superAdminInfo.docId) {
       setPasswordSaveError('Super admin not found.');
       return;
@@ -1340,7 +1437,7 @@ const SuperAdminDashboard = () => {
     }
     try {
       await updateDoc(doc(db, 'Users', superAdminInfo.docId), {
-        password: passwordValues.newPassword
+        password: passwordValues.newPassword,
       });
       setPasswordSaveMsg('Password changed successfully!');
       setSuperAdminInfo(prev => ({
@@ -1353,10 +1450,6 @@ const SuperAdminDashboard = () => {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.clear();
-    window.location.reload();
-  };
 
   const handleFormChange = (e) => {
     setOrgForm({ ...orgForm, [e.target.name]: e.target.value });
@@ -1364,14 +1457,14 @@ const SuperAdminDashboard = () => {
     setOpenDialog(false);
   };
 
-  const handleCreateOrgAndAdmin = async () => {
+  const handleCreateOrgAndAdmin = async (combinedForm) => {
     const {
-      orgName, email, field, phoneNumber, website,
+      orgName, email, category: field, phoneNumber, website,
       address, city, state, country,
       adminName, adminEmail, adminPhoneNumber, adminUsername, adminPassword
-    } = orgForm;
+    } = combinedForm;
 
-    if (!orgName || !email || !field || !phoneNumber || !address || !city || !state || !country ||
+    if (!orgName || !email || !field || !phoneNumber || !address || !state || !country ||
       !adminName || !adminEmail || !adminPhoneNumber || !adminUsername || !adminPassword) {
       setErrorMsg('Please fill all required fields');
       return;
@@ -1380,6 +1473,16 @@ const SuperAdminDashboard = () => {
     const phoneRegex = /^\+?[1-9]\d{9}$/;
     if (!phoneRegex.test(phoneNumber) || !phoneRegex.test(adminPhoneNumber)) {
       setErrorMsg('Please enter valid phone numbers (e.g., +1234567890).');
+      return;
+    }
+
+    if (!isValidUsername(adminUsername)) {
+      setErrorMsg('Username must be 10 or more characters long, include letters, and can only use numbers, periods, or underscores.');
+      return;
+    }
+
+    if (!isValidPassword(adminPassword)) {
+      setErrorMsg('Password must be 6-15 characters long, include at least one uppercase letter, one number, and one special character.');
       return;
     }
 
@@ -1405,7 +1508,8 @@ const SuperAdminDashboard = () => {
         adminName,
         adminEmail,
         adminPhoneNumber,
-        createdAt
+        createdAt,
+        passwordChange: true
       });
 
       setOrgForm({
@@ -1456,7 +1560,8 @@ const SuperAdminDashboard = () => {
         adminName,
         adminEmail,
         adminPhoneNumber: adminPhone,
-        createdAt
+        createdAt,
+        passwordChange: true
       });
       await updateDoc(doc(db, 'accessRequests', request.requestId), {
         status: 'Approved',
@@ -1480,40 +1585,14 @@ const SuperAdminDashboard = () => {
     switch (selectedPage) {
       case 'Dashboard':
         return (
-          <Box>
-            <Box sx={{ mb: 3, textAlign: 'center' }}>
-              <Typography variant="h4" sx={{
-                fontWeight: 900, letterSpacing: 1.5, color: themeMode === 'dark' ? '#90caf9' : '#1976d2', mb: 1,
-                fontSize: { xs: '1.5rem', sm: '2rem', md: '2.25rem' }
-              }}>
-                HELPMATE
-              </Typography>
-              <Typography variant="h6" sx={{ fontWeight: 500, color: themeMode === 'dark' ? '#ccc' : '#444', mb: 1, fontSize: { xs: '1rem', sm: '1.25rem' } }}>
-                Welcome to your Super Admin Dashboard
-              </Typography>
-              <Typography variant="body1" sx={{ color: themeMode === 'dark' ? '#aaa' : '#666', fontSize: { xs: '0.85rem', sm: '1rem' } }}>
-                Get insights about your organizations and admins at a glance!
-              </Typography>
-            </Box>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 4 }} justifyContent="center">
-              <StatCard
-                icon={<GroupIcon fontSize="inherit" />}
-                label="Total Organizations"
-                value={organizations.length}
-                color="#1976d2"
-                themeMode={themeMode}
-              />
-              <StatCard
-                icon={<SupervisorAccountIcon fontSize="inherit" />}
-                label="Total Admins"
-                value={adminCount}
-                color="#ff9800"
-                themeMode={themeMode}
-              />
-            </Stack>
-            <OrganizationFieldBarChart organizations={organizations} themeMode={themeMode} />
-          </Box>
+          <DashboardContent
+            organizations={organizations}
+            adminCount={adminCount}
+            themeMode={themeMode}
+          />
         );
+
+
       case 'Add Organization':
         return (
           <AddOrganizationContent
@@ -1540,26 +1619,51 @@ const SuperAdminDashboard = () => {
         );
       case 'Settings':
         return (
-          <SettingsContent
-            superAdminInfo={superAdminInfo}
-            setSuperAdminInfo={setSuperAdminInfo}
-            handleProfileChange={handleProfileChange}
-            handleProfileSave={handleProfileSave}
-            profileSaveMsg={profileSaveMsg}
-            profileSaveError={profileSaveError}
-            handlePasswordChange={handlePasswordChange}
-            passwordValues={passwordValues}
-            showPassword={showPassword}
-            setShowPassword={setShowPassword}
-            handlePasswordSave={handlePasswordSave}
-            passwordSaveMsg={passwordSaveMsg}
-            passwordSaveError={passwordSaveError}
-            uploading={uploading}
-            handlePhotoUpload={handlePhotoUpload}
-            themeMode={themeMode}
-            setThemeMode={setThemeMode}
-            handleLogout={handleLogout}
-          />
+          <>
+            <SettingsContent
+              superAdminInfo={superAdminInfo}
+              setSuperAdminInfo={setSuperAdminInfo}
+              handleProfileChange={handleProfileChange}
+              handleProfileSave={handleProfileSave}
+              profileSaveMsg={profileSaveMsg}
+              profileSaveError={profileSaveError}
+              handlePasswordChange={handlePasswordChange}
+              passwordValues={passwordValues}
+              showPassword={showPassword}
+              setShowPassword={setShowPassword}
+              handlePasswordSave={handlePasswordSave}
+              passwordSaveMsg={passwordSaveMsg}
+              passwordSaveError={passwordSaveError}
+              uploading={uploading}
+              handlePhotoUpload={handlePhotoUpload}
+              themeMode={themeMode}
+              setThemeMode={setThemeMode}
+              handleLogout={handleLogout}
+              setLogoutDialogOpen={setLogoutDialogOpen}
+            />
+            <Dialog
+              open={logoutDialogOpen}
+              onClose={() => setLogoutDialogOpen(false)}
+              aria-labelledby="logout-dialog-title"
+            >
+              <DialogTitle id="logout-dialog-title">Confirm Logout</DialogTitle>
+              <DialogContent>
+                <Typography>Are you sure you want to logout?</Typography>
+              </DialogContent>
+              <DialogActions>
+                <Button onClick={() => setLogoutDialogOpen(false)} color="primary">
+                  Cancel
+                </Button>
+                <Button
+                  onClick={confirmLogout}
+                  color="error"
+                  variant="contained"
+                >
+                  Logout
+                </Button>
+              </DialogActions>
+            </Dialog>
+          </>
         );
       default:
         return null;
@@ -1601,8 +1705,12 @@ const SuperAdminDashboard = () => {
               key={item.text}
               selected={selectedPage === item.text}
               onClick={() => {
-                setSelectedPage(item.text);
-                if (item.text !== 'Organization List') setSelectedOrg(null);
+                if (item.text === 'Logout') {
+                  handleLogout();
+                } else {
+                  setSelectedPage(item.text);
+                  if (item.text !== 'Organization List') setSelectedOrg(null);
+                }
                 setSidebarOpen(false);
               }}
               sx={{
@@ -1660,8 +1768,12 @@ const SuperAdminDashboard = () => {
               key={item.text}
               selected={selectedPage === item.text}
               onClick={() => {
-                setSelectedPage(item.text);
-                if (item.text !== 'Organization List') setSelectedOrg(null);
+                if (item.text === 'Logout') {
+                  handleLogout();
+                } else {
+                  setSelectedPage(item.text);
+                  if (item.text !== 'Organization List') setSelectedOrg(null);
+                }
               }}
               sx={{
                 borderRadius: 2,
@@ -1722,7 +1834,7 @@ const SuperAdminDashboard = () => {
             ? <Typography>Loading...</Typography>
             : renderContent()}
         </Box>
-        
+
       </Box>
     </Box>
   );

@@ -8,13 +8,11 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import { useTheme, useMediaQuery } from "@mui/material";
 import { db } from "../../firebase.js";
 import { doc, setDoc, Timestamp, getDoc } from "firebase/firestore";
-import axios from "axios";
 import Confetti from "react-confetti";
 import { prioritizeTickets } from '../../api/aipriority';
 import { getAiSuggestions } from "../../api/aisuggest";
 
-const CLOUDINARY_URL = "https://api.cloudin1ary.com/v1_1/diogwsroa/upload";
-const UPLOAD_PRESET = "helpmate_upload";
+const MAX_FILE_SIZE = 750 * 1024; // 750KB, to fit Firestore 1MiB limit after Base64 encoding
 
 const CreateTicketForm = ({ onClose, username }) => {
   const [ticketId, setTicketId] = useState("");
@@ -101,15 +99,14 @@ const CreateTicketForm = ({ onClose, username }) => {
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
     if (selectedFile) {
-      const maxSize = 10 * 1024 * 1024; // 10MB
       const allowedTypes = [
         "image/png",
         "image/jpeg",
         "image/webp",
         "application/pdf",
       ];
-      if (selectedFile.size > maxSize) {
-        setError("File size exceeds 10MB limit.");
+      if (selectedFile.size > MAX_FILE_SIZE) {
+        setError("File size exceeds 750KB limit for Firestore storage. Please choose a smaller file.");
         setFile(null);
         setFileName("");
         return;
@@ -125,6 +122,14 @@ const CreateTicketForm = ({ onClose, username }) => {
       setFileName(selectedFile.name);
     }
   };
+
+  // Helper to convert file to base64 string
+  const toBase64 = file => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result); // returns "data:<mime>;base64,<base64string>"
+    reader.onerror = error => reject(error);
+  });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -172,30 +177,7 @@ const CreateTicketForm = ({ onClose, username }) => {
     try {
       let fileUrl = "";
       if (file) {
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("upload_preset", UPLOAD_PRESET);
-        formData.append("resource_type", "auto");
-
-        try {
-          const uploadResponse = await axios.post(CLOUDINARY_URL, formData, {
-            timeout: 30000,
-          });
-
-          if (!uploadResponse.data.secure_url) {
-            throw new Error("File upload failed: No secure_url returned.");
-          }
-          fileUrl = uploadResponse.data.secure_url;
-        } catch (uploadError) {
-          console.error("Cloudinary upload error:", uploadError);
-          if (uploadError.response?.status === 404) {
-            setError("File upload failed: Cloudinary endpoint not found. Please check the Cloudinary configuration or try again later.");
-          } else {
-            setError(`File upload failed: ${uploadError.message || "Unknown error"}. Please try again.`);
-          }
-          setLoading(false);
-          return;
-        }
+        fileUrl = await toBase64(file);
       }
 
       // Get user info
@@ -230,20 +212,21 @@ const CreateTicketForm = ({ onClose, username }) => {
         console.warn("AI prioritization failed, using defaults:", aiError);
       }
 
-      // Fetch SLA settings for the organization based on priority
+      // Fetch SLA settings from root collection for the organization based on priority
       let slaSlogan = "We're here to help you quickly!";
       let days = 0, hours = 0, minutes = 0;
       try {
-        const slaRef = doc(db, "Organizations", organization, "SLASettings", priority);
+        const slaId = `${organization}.${priority}`;
+        const slaRef = doc(db, "SLASettings", slaId);
         const slaSnap = await getDoc(slaRef);
         if (slaSnap.exists()) {
           const slaData = slaSnap.data();
-          days = slaData.days || 0;
-          hours = slaData.hours || 0;
-          minutes = slaData.minutes || 0;
+          days = slaData.days ?? 0;
+          hours = slaData.hours ?? 0;
+          minutes = slaData.minutes ?? 0;
           slaSlogan = slaData.slogan || slaSlogan;
         } else {
-          console.warn(`No SLA settings found for organization ${organization} and priority ${priority}. Using defaults.`);
+          console.warn(`No SLA settings found for ${organization} and priority ${priority}. Using defaults.`);
         }
       } catch (slaError) {
         console.warn("Failed to fetch SLA settings:", slaError);
@@ -271,7 +254,6 @@ const CreateTicketForm = ({ onClose, username }) => {
         type,
         problem,
         description,
-        fileUrl,
         createdAt: Timestamp.now(),
         createdBy: username,
         status: "Pending",
@@ -280,6 +262,13 @@ const CreateTicketForm = ({ onClose, username }) => {
         resolutionTime: resolutionTime,
         responseTime: combinedResponseTime,
       };
+
+      // Attach fileUrl if present
+      if (fileUrl) {
+        ticketData.fileUrl = fileUrl;
+        ticketData.fileName = fileName;
+        ticketData.fileType = file?.type || "";
+      }
 
       await setDoc(doc(db, "tickets", ticketId), ticketData);
 
@@ -308,7 +297,18 @@ const CreateTicketForm = ({ onClose, username }) => {
   // Inline AI Suggestion Card rendering
   const renderSuggestions = () => {
     if (!showSuggestions || suggestionsLoading) return null;
-    if (!suggestions.length) return null;
+    if (!suggestions.length) {
+      return (
+        <Box sx={{ my: 2, p: 2, border: "1px solid #b3c6e0", borderRadius: "8px", background: "#f6faff" }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 600, color: "#123499", mb: 1 }}>
+            No similar past solutions found.
+          </Typography>
+          <Button onClick={handleIgnoreSuggestions} color="primary" variant="outlined" sx={{ mt: 1 }}>
+            Hide
+          </Button>
+        </Box>
+      );
+    }
     return (
       <Box sx={{ my: 2, p: 2, border: "1px solid #b3c6e0", borderRadius: "8px", background: "#f6faff" }}>
         <Typography variant="subtitle1" sx={{ fontWeight: 600, color: "#123499", mb: 1 }}>
@@ -566,7 +566,7 @@ const CreateTicketForm = ({ onClose, username }) => {
                   fontSize: { xs: "0.85rem", sm: "0.9rem" },
                 }}
               >
-                Attach File (PNG, JPG, WEBP, PDF)
+                Attach File (PNG, PNG, WEBP, PDF)
               </FormLabel>
               <Button
                 variant="outlined"
@@ -597,8 +597,21 @@ const CreateTicketForm = ({ onClose, username }) => {
                   aria-describedby={error && error.includes("File") ? "error-message" : undefined}
                 />
               </Button>
+              <Typography
+                variant="body2"
+                sx={{
+                  mt: 1,
+                  fontFamily: "'Outfit', sans-serif",
+                  color: "#123499",
+                  fontSize: { xs: "0.8rem", sm: "0.9rem" },
+                }}
+              >
+                Maximum file size allowed: <strong>750KB</strong><br />
+                Only PNG, JPG, JPEG, WEBP, and PDF files are supported.
+              </Typography>
               {fileName && (
                 <Typography
+                  variant="body2"
                   sx={{
                     mt: 1,
                     fontFamily: "'Outfit', sans-serif",
@@ -733,6 +746,7 @@ const CreateTicketForm = ({ onClose, username }) => {
             aria-label="Success Icon"
           />
           <Typography
+            variant="subtitle1"
             sx={{
               fontFamily: "'Outfit', sans-serif",
               color: "#123499",

@@ -55,11 +55,17 @@ const DisplayTickets = ({
   const [error, setError] = useState(null);
   const [activePanel, setActivePanel] = useState("assign");
   const [selectedTicketId, setSelectedTicketId] = useState(null); // State to control TicketDetails modal
-
+  const [internalSearch, setInternalSearch] = useState(search || "");
+  const [sortOrderPending, setSortOrderPending] = useState("desc");
+  const [sortOrderAssigned, setSortOrderAssigned] = useState("desc");
   // Responsive breakpoints
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm")); // <600px
   const isTablet = useMediaQuery(theme.breakpoints.down("md")); // <900px
+
+  useEffect(() => {
+    setInternalSearch(search || "");
+  }, [search]);
 
   useEffect(() => {
     if (!organization) {
@@ -110,21 +116,29 @@ const DisplayTickets = ({
     };
   };
 
+  // SEARCH LOGIC FIXED: can search by ticketId or keyword (problem/type/id/createdBy/department)
   const filteredTickets = useMemo(
     () =>
-      tickets.filter((t) =>
-        ["id", "createdBy", "problem", "type", "department"].some((f) =>
-          t[f]?.toString().toLowerCase().includes(search.toLowerCase())
-        )
-      ),
-    [tickets, search]
+      tickets.filter((t) => {
+        const searchStr = internalSearch.toLowerCase();
+        if (!searchStr) return true;
+        // Search by ticketId (id)
+        if (t.id && t.id.toLowerCase().includes(searchStr)) return true;
+        // Search in other fields
+        return ["createdBy", "problem", "type", "department"].some((f) =>
+          t[f]?.toString().toLowerCase().includes(searchStr)
+        );
+      }),
+    [tickets, internalSearch]
   );
 
+  // Pending: status === "pending"
   const pendingTickets = useMemo(
     () => filteredTickets.filter((t) => t.status === "pending"),
     [filteredTickets]
   );
 
+  // Assigned but not yet updated: status === "open" and assignedAgent is filled
   const assignedUnchangedTickets = useMemo(
     () =>
       filteredTickets.filter(
@@ -136,6 +150,7 @@ const DisplayTickets = ({
     [filteredTickets]
   );
 
+  // Grouped for status panel
   const groupedTickets = useMemo(() => {
     const nonPending = filteredTickets.filter(
       (t) => t.status !== "pending"
@@ -149,6 +164,7 @@ const DisplayTickets = ({
     return groups;
   }, [filteredTickets]);
 
+  // SORT
   const sortTickets = (tickets, order) =>
     [...tickets].sort(
       (a, b) =>
@@ -161,6 +177,18 @@ const DisplayTickets = ({
       ...s,
       [status]: s[status] === "asc" ? "desc" : "asc",
     }));
+
+  const sortedPendingTickets = [...pendingTickets].sort(
+    (a, b) =>
+      (sortOrderPending === "desc" ? -1 : 1) *
+      (new Date(a.createdAt || 0) - new Date(b.createdAt || 0))
+  );
+
+  const sortedAssignedUnchangedTickets = [...assignedUnchangedTickets].sort(
+    (a, b) =>
+      (sortOrderAssigned === "desc" ? -1 : 1) *
+      (new Date(a.createdAt || 0) - new Date(b.createdAt || 0))
+  );
 
   // Responsive Table Headings
   const tableHeadings = [
@@ -241,8 +269,8 @@ const DisplayTickets = ({
               Created At: <span style={{ fontWeight: 400 }}>
                 {ticket.createdAt
                   ? dayjs(
-                      ticket.createdAt.toDate ? ticket.createdAt.toDate() : ticket.createdAt
-                    ).format("MMM DD, YYYY")
+                    ticket.createdAt.toDate ? ticket.createdAt.toDate() : ticket.createdAt
+                  ).format("MMM DD, YYYY")
                   : "N/A"}
               </span>
             </Typography>
@@ -316,8 +344,8 @@ const DisplayTickets = ({
           <TableCell sx={{ color: NAVY }}>
             {ticket.createdAt
               ? dayjs(
-                  ticket.createdAt.toDate ? ticket.createdAt.toDate() : ticket.createdAt
-                ).format("MMM DD, YYYY")
+                ticket.createdAt.toDate ? ticket.createdAt.toDate() : ticket.createdAt
+              ).format("MMM DD, YYYY")
               : "N/A"}
           </TableCell>
         )}
@@ -402,6 +430,7 @@ const DisplayTickets = ({
           Ticket Status
         </Button>
       </Stack>
+      {/* SEARCH BAR FIX */}
       <Box sx={{ mb: 3, maxWidth: isMobile ? "100%" : 400 }}>
         <TextField
           label="Search Tickets"
@@ -417,7 +446,8 @@ const DisplayTickets = ({
               "&.Mui-focused fieldset": { borderColor: SELECT_BG },
             },
           }}
-          value={search}
+          value={internalSearch}
+          onChange={(e) => setInternalSearch(e.target.value)}
           InputProps={{
             startAdornment: (
               <InputAdornment position="start">
@@ -425,7 +455,6 @@ const DisplayTickets = ({
               </InputAdornment>
             ),
           }}
-          disabled
         />
       </Box>
 
@@ -435,23 +464,38 @@ const DisplayTickets = ({
           {pendingTickets.length > 0 && (
             <Box>
               {isMobile ? (
-                pendingTickets.map((ticket, i) => (
+                sortedPendingTickets.map((ticket, i) => (
                   <TicketTableRow key={ticket.id} ticket={ticket} index={i} />
                 ))
               ) : (
                 <Card sx={{ mb: 3, boxShadow: "0 2px 8px 0 #e3f2fd", borderRadius: 3 }}>
                   <CardContent>
-                    <Typography
-                      variant="h6"
-                      sx={{
-                        fontWeight: "bold",
-                        color: NAVY,
-                        fontSize: "1.25rem",
-                        mb: 1,
-                      }}
-                    >
-                      Pending Tickets ({pendingTickets.length})
-                    </Typography>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
+                      <Typography
+                        variant="h6"
+                        sx={{
+                          fontWeight: "bold",
+                          color: NAVY,
+                          fontSize: "1.25rem",
+                        }}
+                      >
+                        Pending Tickets ({pendingTickets.length})
+                      </Typography>
+                      <Button
+                        size="small"
+                        onClick={() => setSortOrderPending(sortOrderPending === "asc" ? "desc" : "asc")}
+                        startIcon={<SortIcon sx={{ color: NAVY }} />}
+                        sx={{
+                          color: NAVY,
+                          fontWeight: 700,
+                          border: `1px solid ${NAVY}`,
+                          bgcolor: WHITE,
+                          "&:hover": { bgcolor: SELECT_BG, color: WHITE },
+                        }}
+                      >
+                        Sort by Date ({sortOrderPending === "asc" ? "Asc" : "Desc"})
+                      </Button>
+                    </Box>
                     <TableContainer component={Paper} sx={{ overflowX: "auto" }}>
                       <Table size="small" aria-label="pending tickets table">
                         <TableHead>
@@ -467,7 +511,7 @@ const DisplayTickets = ({
                           </TableRow>
                         </TableHead>
                         <TableBody>
-                          {pendingTickets.map((ticket, i) => (
+                          {sortedPendingTickets.map((ticket, i) => (
                             <TicketTableRow key={ticket.id} ticket={ticket} index={i} />
                           ))}
                         </TableBody>
@@ -483,23 +527,38 @@ const DisplayTickets = ({
           {assignedUnchangedTickets.length > 0 && (
             <Box>
               {isMobile ? (
-                assignedUnchangedTickets.map((ticket, i) => (
+                sortedAssignedUnchangedTickets.map((ticket, i) => (
                   <TicketTableRow key={ticket.id} ticket={ticket} index={i} />
                 ))
               ) : (
                 <Card sx={{ mb: 3, boxShadow: "0 2px 8px 0 #e3f2fd", borderRadius: 3 }}>
                   <CardContent>
-                    <Typography
-                      variant="h6"
-                      sx={{
-                        fontWeight: "bold",
-                        color: NAVY,
-                        fontSize: "1.25rem",
-                        mb: 1,
-                      }}
-                    >
-                      Assigned Tickets (Not Yet Updated) ({assignedUnchangedTickets.length})
-                    </Typography>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
+                      <Typography
+                        variant="h6"
+                        sx={{
+                          fontWeight: "bold",
+                          color: NAVY,
+                          fontSize: "1.25rem",
+                        }}
+                      >
+                        Assigned Tickets (Not Yet Updated) ({assignedUnchangedTickets.length})
+                      </Typography>
+                      <Button
+                        size="small"
+                        onClick={() => setSortOrderAssigned(sortOrderAssigned === "asc" ? "desc" : "asc")}
+                        startIcon={<SortIcon sx={{ color: NAVY }} />}
+                        sx={{
+                          color: NAVY,
+                          fontWeight: 700,
+                          border: `1px solid ${NAVY}`,
+                          bgcolor: WHITE,
+                          "&:hover": { bgcolor: SELECT_BG, color: WHITE },
+                        }}
+                      >
+                        Sort by Date ({sortOrderAssigned === "asc" ? "Asc" : "Desc"})
+                      </Button>
+                    </Box>
                     <TableContainer component={Paper} sx={{ overflowX: "auto" }}>
                       <Table size="small" aria-label="assigned tickets table">
                         <TableHead>
@@ -515,7 +574,7 @@ const DisplayTickets = ({
                           </TableRow>
                         </TableHead>
                         <TableBody>
-                          {assignedUnchangedTickets.map((ticket, i) => (
+                          {sortedAssignedUnchangedTickets.map((ticket, i) => (
                             <TicketTableRow key={ticket.id} ticket={ticket} index={i} />
                           ))}
                         </TableBody>

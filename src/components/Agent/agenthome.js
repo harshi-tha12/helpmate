@@ -2,8 +2,6 @@ import React, { useState, useEffect } from "react";
 import {
   Box,
   Typography,
-  Card,
-  CardContent,
   IconButton,
   Drawer,
   List,
@@ -17,12 +15,14 @@ import {
   Button,
   useTheme,
   useMediaQuery,
+  AppBar,
+  Toolbar,
+  CircularProgress,
 } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
 import HomeFilledIcon from "@mui/icons-material/HomeFilled";
 import BookOnlineSharpIcon from "@mui/icons-material/BookOnlineSharp";
 import AssessmentIcon from "@mui/icons-material/Assessment";
-import AssistantIcon from "@mui/icons-material/Assistant";
 import LogoutOutlinedIcon from "@mui/icons-material/LogoutOutlined";
 import AccountCircleOutlinedIcon from "@mui/icons-material/AccountCircleOutlined";
 import SettingsIcon from "@mui/icons-material/Settings";
@@ -30,14 +30,19 @@ import { useNavigate } from "react-router-dom";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "../../firebase.js";
 import AssignedTickets from "./assignedtickets.js";
+import AgentReport from "./agentreport.js";
+import AgentSettings from "./agentsettings.js";
+import AgentGraph from "./agentgraph.js";
 import { Outlet } from "react-router-dom";
 
 const drawerWidth = { xs: 240, sm: 260, md: 280 };
+const appBarHeight = 64; // increased height for AppBar
 
 const navItems = [
   { key: "home", label: "Home", icon: <HomeFilledIcon />, path: "/agent/home" },
   { key: "assigned-tickets", label: "Assigned Tickets", icon: <BookOnlineSharpIcon />, path: "/agent/assigned-tickets" },
-  { key: "reports", label: "Reports", icon: <AssessmentIcon />, path: "/agent/reports" },
+  
+  { key: "settings", label: "Settings", icon: <SettingsIcon /> },
 ];
 
 const AgentDashboard = () => {
@@ -45,46 +50,54 @@ const AgentDashboard = () => {
   const [agentUsername, setAgentUsername] = useState("");
   const [agentDepartment, setAgentDepartment] = useState("");
   const [organization, setOrganization] = useState("");
-  const [selectedKey, setSelectedKey] = useState("home");
-  const navigate = useNavigate();
+  const [selectedPage, setSelectedPage] = useState("home");
+  const [themeMode, setThemeMode] = useState("light");
   const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
+  const [mustChangePassword, setMustChangePassword] = useState(false);
+  const [checkingPassword, setCheckingPassword] = useState(true);
+  const navigate = useNavigate();
   const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm")); // <600px
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
   useEffect(() => {
     const storedUsername = sessionStorage.getItem("username");
     if (storedUsername) {
       setAgentUsername(storedUsername);
       fetchAgentDetails(storedUsername);
+    } else {
+      navigate("/Login");
     }
   }, [navigate]);
 
+  // Fetch from Users collection, read orgName, department, and passwordChange fields
   const fetchAgentDetails = async (username) => {
     try {
-      const agentRef = doc(db, "agent", username);
+      const agentRef = doc(db, "Users", username);
       const docSnap = await getDoc(agentRef);
       if (docSnap.exists()) {
         const data = docSnap.data();
         setAgentDepartment(data.department || "");
-        setOrganization(data.organization || "Not Assigned");
+        setOrganization(data.orgName || "Not Assigned");
+        setMustChangePassword(data.passwordChange || false);
       } else {
-        console.warn("No such agent found");
+        console.warn("No such agent found in Users");
+        setOrganization("Not Assigned");
       }
     } catch (error) {
       console.error("Error fetching agent details:", error);
+      setOrganization("Not Assigned");
+    } finally {
+      setCheckingPassword(false);
     }
   };
 
   const handleItemClick = (key, path) => {
-    setSelectedKey(key);
-    if (key === "home" || key === "assigned-tickets") {
-      setDrawerOpen(true);
-    } else {
-      setDrawerOpen(true);
+    setSelectedPage(key);
+    if (key !== "settings" && key !== "assigned-tickets" && key !== "home" && path) {
       navigate(path);
     }
     if (isMobile) {
-      setDrawerOpen(false); // Close drawer on mobile after selection
+      setDrawerOpen(false);
     }
   };
 
@@ -104,6 +117,7 @@ const AgentDashboard = () => {
 
   return (
     <Box sx={{ display: "flex", minHeight: "100vh", backgroundColor: "#E5E5E5" }}>
+      {/* Drawer - Side Panel */}
       <Drawer
         variant={isMobile ? "temporary" : "permanent"}
         open={isMobile ? drawerOpen : true}
@@ -113,7 +127,7 @@ const AgentDashboard = () => {
           flexShrink: 0,
           "& .MuiDrawer-paper": {
             width: isMobile ? drawerWidth.xs : drawerOpen ? drawerWidth.md : 70,
-            backgroundColor: "#000000",
+            backgroundColor: "#2A2A2A",
             color: "white",
             transition: "width 0.3s",
             overflowX: "hidden",
@@ -123,7 +137,7 @@ const AgentDashboard = () => {
           },
         }}
         ModalProps={{
-          keepMounted: true, // Better performance on mobile
+          keepMounted: true,
         }}
       >
         <Box
@@ -149,23 +163,20 @@ const AgentDashboard = () => {
               Helpmate
             </Typography>
           </Box>
-          <Box sx={{ borderLeft: "2px solid #fff", height: "100%", position: "absolute", left: "50px" }} />
           <List>
             {navItems.map(({ key, label, icon, path }) => {
-              const isSelected = selectedKey === key;
+              const isSelected = selectedPage === key;
               return (
                 <ListItem
                   button
                   key={key}
                   onClick={() => handleItemClick(key, path)}
                   sx={{
-                    borderRadius: isSelected ? "25px" : 0,
                     mx: 1,
                     my: 0.5,
-                    backgroundColor: isSelected ? "#266CA9" : "transparent",
+                    backgroundColor: "transparent",
                     "&:hover": {
-                      backgroundColor: "#266CA9",
-                      opacity: 0.9,
+                      backgroundColor: "transparent",
                     },
                   }}
                   aria-current={isSelected ? "page" : undefined}
@@ -173,7 +184,7 @@ const AgentDashboard = () => {
                 >
                   <ListItemIcon
                     sx={{
-                      color: "white",
+                      color: isSelected ? "#00A3FF" : "white",
                       minWidth: 0,
                       mr: drawerOpen ? 2 : "auto",
                       justifyContent: "center",
@@ -191,7 +202,7 @@ const AgentDashboard = () => {
                       primaryTypographyProps={{
                         fontSize: { xs: "0.95rem", sm: "1rem", md: "1.1rem" },
                         fontFamily: "'PT Serif', serif",
-                        color: "white",
+                        color: isSelected ? "#00A3FF" : "white",
                         "&:hover": {
                           color: "#00A3FF",
                         },
@@ -277,6 +288,36 @@ const AgentDashboard = () => {
         </Box>
       </Drawer>
 
+      {/* AppBar aligned next to drawer */}
+      <AppBar
+        position="fixed"
+        sx={{
+          height: appBarHeight,
+          ml: isMobile ? 0 : drawerOpen ? `${drawerWidth.md}px` : "70px",
+          width: isMobile ? "100%" : `calc(100% - ${drawerOpen ? drawerWidth.md : 70}px)`,
+          backgroundColor: "#2A2A2A",
+          justifyContent: "center",
+          boxShadow: "none",
+          borderBottom: "1px solid #222",
+        }}
+      >
+        <Toolbar sx={{ minHeight: appBarHeight, px: 2 }}>
+          <IconButton
+            color="inherit"
+            aria-label="toggle drawer"
+            edge="start"
+            onClick={handleDrawerToggle}
+            sx={{ mr: 2, display: { sm: "block" } }}
+          >
+            <MenuIcon />
+          </IconButton>
+          <Typography variant="h6" noWrap component="div" sx={{ fontFamily: "'PT Serif', serif" }}>
+            Agent Dashboard
+          </Typography>
+        </Toolbar>
+      </AppBar>
+
+      {/* Main content box with margin top for AppBar */}
       <Box
         component="main"
         sx={{
@@ -287,146 +328,156 @@ const AgentDashboard = () => {
           transition: "margin-left 0.3s",
           ml: isMobile ? 0 : drawerOpen ? `${drawerWidth.md}px` : "70px",
           width: isMobile ? "100%" : `calc(100% - ${drawerOpen ? drawerWidth.md : 70}px)`,
+          mt: `${appBarHeight}px`,
+          ...(mustChangePassword && {
+            pointerEvents: "none",
+            opacity: 0.5,
+          }),
         }}
         role="main"
         aria-label="Agent dashboard content"
       >
-        <Box sx={{ position: "absolute", top: 10, right: 10 }}>
-          <IconButton color="inherit" aria-label="Profile Settings">
-            <SettingsIcon sx={{ color: "#0A2472", fontSize: "1.5rem" }} />
-          </IconButton>
-        </Box>
-        <Card
-          sx={{
-            width: "100%",
-            mb: 3,
-            p: 2,
-            backgroundColor: "#FFFFFF",
-            borderRadius: 2,
-            boxShadow: 1,
-          }}
-        >
-          <CardContent>
-            <Typography
-              variant="h4"
-              sx={{
-                fontFamily: "'PT Serif', serif",
-                color: "#123499",
-                fontWeight: "bold",
-                fontSize: { xs: "1.5rem", sm: "1.75rem", md: "2rem" },
-              }}
-            >
-              Welcome Agent
-            </Typography>
-            {organization && (
-              <Typography
-                variant="h6"
-                sx={{
-                  mt: 1,
-                  color: "#0A2472",
-                  fontFamily: "'Playfair Display', serif",
-                  fontSize: { xs: "1rem", sm: "1.25rem", md: "1.5rem" },
-                }}
-              >
-                Organization: {organization}
-              </Typography>
-            )}
-          </CardContent>
-        </Card>
-        {selectedKey === "home" ? (
-          <Box>
-            <Typography
-              variant="h4"
-              sx={{
-                fontFamily: "'PT Serif', serif",
-                color: "#123499",
-                fontWeight: "bold",
-                fontSize: { xs: "1.5rem", sm: "1.75rem", md: "2rem" },
-                mb: 2,
-              }}
-            >
-              Agent Dashboard
-            </Typography>
-            {organization && (
-              <Typography
-                variant="h6"
-                sx={{
-                  mt: 2,
-                  color: "#0A2472",
-                  fontFamily: "'Playfair Display', serif",
-                  fontSize: { xs: "1rem", sm: "1.25rem", md: "1.5rem" },
-                }}
-              >
-                Organization: {organization}
-              </Typography>
-            )}
-          </Box>
-        ) : selectedKey === "assigned-tickets" ? (
-          <AssignedTickets />
-        ) : (
-          <Outlet />
-        )}
-
-        <Dialog
-          open={logoutDialogOpen}
-          onClose={() => setLogoutDialogOpen(false)}
-          aria-labelledby="logout-dialog-title"
-          sx={{
-            "& .MuiDialog-paper": {
-              width: { xs: "90%", sm: "400px" },
-              maxWidth: "400px",
-              p: { xs: 1, sm: 2 },
-            },
-          }}
-        >
-          <DialogTitle
-            id="logout-dialog-title"
+        {mustChangePassword && (
+          <Box
             sx={{
-              fontFamily: "'PT Serif', serif",
-              fontSize: { xs: "1.1rem", sm: "1.25rem" },
-              color: "#0A2472",
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              bgcolor: "rgba(0,0,0,0.3)",
+              zIndex: 999,
             }}
-          >
-            Confirm Logout
-          </DialogTitle>
-          <DialogContent>
-            <Typography
-              variant="body1"
-              sx={{
-                fontFamily: "'PT Serif', serif",
-                fontSize: { xs: "0.85rem", sm: "0.9rem" },
-                color: "#333",
-              }}
-            >
-              Are you sure you want to logout?
+          />
+        )}
+        {checkingPassword ? (
+          <Box sx={{ mt: 15, textAlign: "center" }}>
+            <CircularProgress size={32} color="primary" />
+            <Typography variant="body1" sx={{ mt: 2, fontFamily: "'PT Serif', serif" }}>
+              Checking account security...
             </Typography>
-          </DialogContent>
-          <DialogActions>
-            <Button
-              onClick={() => setLogoutDialogOpen(false)}
-              color="primary"
+          </Box>
+        ) : (
+          <>
+            {mustChangePassword && (
+              <Dialog
+                open={mustChangePassword}
+                disableEscapeKeyDown
+                sx={{
+                  "& .MuiDialog-paper": {
+                    width: { xs: "90%", sm: "400px" },
+                    maxWidth: "400px",
+                    p: { xs: 1, sm: 2 },
+                  },
+                }}
+              >
+                <DialogTitle sx={{ fontFamily: "'PT Serif', serif", fontSize: { xs: "1.1rem", sm: "1.25rem" }, color: "#0A2472" }}>
+                  Change Your Password
+                </DialogTitle>
+                <DialogContent>
+                  <Typography sx={{ fontFamily: "'PT Serif', serif", fontSize: { xs: "0.85rem", sm: "0.9rem" }, color: "#333" }}>
+                    For your security, you must change your password before accessing the application.
+                  </Typography>
+                </DialogContent>
+                <DialogActions>
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    onClick={() => {
+                      setSelectedPage("settings");
+                      setMustChangePassword(false);
+                    }}
+                    sx={{
+                      fontFamily: "'PT Serif', serif",
+                      fontSize: { xs: "0.8rem", sm: "0.85rem" },
+                      minWidth: { xs: 80, sm: 100 },
+                    }}
+                  >
+                    Go to Settings
+                  </Button>
+                </DialogActions>
+              </Dialog>
+            )}
+            {selectedPage === "home" ? (
+              <AgentGraph
+                username={agentUsername}
+                orgName={organization}
+                department={agentDepartment}
+              />
+            ) : selectedPage === "assigned-tickets" ? (
+              <AssignedTickets />
+            ) : selectedPage === "settings" ? (
+              <AgentSettings
+                username={agentUsername}
+                themeMode={themeMode}
+                setThemeMode={setThemeMode}
+                onLogout={() => setLogoutDialogOpen(true)}
+              />
+            
+            ) : null}
+            <Outlet />
+            <Dialog
+              open={logoutDialogOpen}
+              onClose={() => setLogoutDialogOpen(false)}
+              aria-labelledby="logout-dialog-title"
               sx={{
-                fontFamily: "'PT Serif', serif",
-                fontSize: { xs: "0.8rem", sm: "0.85rem" },
-                minWidth: { xs: 80, sm: 100 },
+                "& .MuiDialog-paper": {
+                  width: { xs: "90%", sm: "400px" },
+                  maxWidth: "400px",
+                  p: { xs: 1, sm: 2 },
+                },
               }}
             >
-              Cancel
-            </Button>
-            <Button
-              onClick={confirmLogout}
-              color="error"
-              variant="contained"
-              sx={{
-                fontFamily: "'PT Serif', serif",
-                fontSize: { xs: "0.8rem", sm: "0.85rem" },
-                minWidth: { xs: 80, sm: 100 },
-              }}
-            >
-              Logout
-            </Button>
-          </DialogActions>
-        </Dialog>
+              <DialogTitle
+                id="logout-dialog-title"
+                sx={{
+                  fontFamily: "'PT Serif', serif",
+                  fontSize: { xs: "1.1rem", sm: "1.25rem" },
+                  color: "#0A2472",
+                }}
+              >
+                Confirm Logout
+              </DialogTitle>
+              <DialogContent>
+                <Typography
+                  variant="body1"
+                  sx={{
+                    fontFamily: "'PT Serif', serif",
+                    fontSize: { xs: "0.85rem", sm: "0.9rem" },
+                    color: "#333",
+                  }}
+                >
+                  Are you sure you want to logout?
+                </Typography>
+              </DialogContent>
+              <DialogActions>
+                <Button
+                  onClick={() => setLogoutDialogOpen(false)}
+                  color="primary"
+                  sx={{
+                    fontFamily: "'PT Serif', serif",
+                    fontSize: { xs: "0.8rem", sm: "0.85rem" },
+                    minWidth: { xs: 80, sm: 100 },
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={confirmLogout}
+                  color="error"
+                  variant="contained"
+                  sx={{
+                    fontFamily: "'PT Serif', serif",
+                    fontSize: { xs: "0.8rem", sm: "0.85rem" },
+                    minWidth: { xs: 80, sm: 100 },
+                  }}
+                >
+                  Logout
+                </Button>
+              </DialogActions>
+            </Dialog>
+          </>
+        )}
       </Box>
     </Box>
   );

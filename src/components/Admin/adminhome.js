@@ -32,6 +32,8 @@ import DisplayTickets from "./displayticket";
 import Manage from "./manage.js";
 import EscalationAlert from "./alerts.js";
 import Report from "./graphs.js";
+import Reports from "./report";
+import AdminSettings from "./adminsettings.js";
 
 const NAVY = "#1A2A6C";
 const WHITE = "#FFF";
@@ -46,7 +48,8 @@ const navItems = [
   { text: "Reports", icon: <AssessmentIcon /> },
   { text: "Knowledge Base", icon: <LibraryBooksIcon /> },
   { text: "Manage Department", icon: <BusinessIcon /> }, // New item
-  { text: "SLA Settings", icon: <SettingsIcon /> }, // New item
+  { text: "SLA Settings", icon: <SettingsIcon /> },
+  { text: "Settings", icon: <SettingsIcon /> }, /// New item
 ];
 
 const statusMapping = {
@@ -83,6 +86,8 @@ const AdminDashboard = () => {
   const handleAgentDialogClose = () => setSelectedAgent(null);
   const [departments, setDepartments] = useState([]);
   const [showAlerts, setShowAlerts] = useState(false);
+  const [themeMode, setThemeMode] = useState("light");
+  const [showChangePasswordDialog, setShowChangePasswordDialog] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -99,9 +104,16 @@ const AdminDashboard = () => {
           const orgName = adminDoc.data().orgName || "Unknown Organization";
           setAdminData({
             username: adminDoc.data().username || currentAdminUsername,
-            orgName
+            orgName,
+            passwordChange: adminDoc.data().passwordChange || false // Fetch passwordChange
           });
           adminOrgName = orgName;
+          // Check if password change is required
+          if (adminDoc.data().passwordChange) {
+            setShowChangePasswordDialog(true);
+          }
+          // Set theme from Firebase if available
+          setThemeMode(adminDoc.data().theme || "light");
           const orgDoc = await getDoc(doc(db, "Organizations", adminOrgName));
           if (!orgDoc.exists()) {
             setMessage(`Warning: Admin's organization "${adminOrgName}" not found.`);
@@ -111,7 +123,6 @@ const AdminDashboard = () => {
           navigate("/");
           return;
         }
-
         const [usersSnapshot, ticketsSnapshot, organizationsSnapshot, departmentsSnapshot] = await Promise.all([
           getDocs(collection(db, "Users")),
           getDocs(collection(db, "tickets")),
@@ -277,6 +288,9 @@ const AdminDashboard = () => {
 
   const validateForm = async (type) => {
     const errors = {};
+    const passwordRegex = /^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*])[A-Za-z\d!@#$%^&*]{6,15}$/;
+    const usernameRegex = /^[A-Za-z][A-Za-z0-9._]{9}$/;
+
     if (type === "organization") {
       errors.orgname = !formData.orgname.trim() && "Organization name is required!";
       errors.address = !formData.address.trim() && "Address is required!";
@@ -288,26 +302,46 @@ const AdminDashboard = () => {
       if (existingOrgnames.includes(formData.orgname))
         errors.orgname = "Organization name already exists";
     } else {
+      // Validate Name
       errors.name = !formData.name.trim() && "Name is required!";
-      errors.username = !formData.username.trim() && "Username is required!";
-      errors.password = !formData.password.trim()
-        ? "Password is required!"
-        : formData.password.length < 6 && "Password must be at least 6 characters!";
+
+      // Validate Username
+      if (!formData.username.trim()) {
+        errors.username = "Username is required!";
+      } else if (formData.username.length !== 10) {
+        errors.username = "Username must be exactly 10 characters long!";
+      } else if (!usernameRegex.test(formData.username)) {
+        errors.username = "Username must contain letters and can only include numbers, periods, or underscores!";
+      } else {
+        const usersSnapshot = await getDocs(collection(db, "Users"));
+        const existingUsernames = usersSnapshot.docs.map(doc => doc.id);
+        if (existingUsernames.includes(formData.username))
+          errors.username = "Username already exists";
+      }
+
+      // Validate Password
+      if (!formData.password.trim()) {
+        errors.password = "Password is required!";
+      } else if (!passwordRegex.test(formData.password)) {
+        errors.password = "Password must be 6-15 characters long, include at least one uppercase letter, one number, and one special character!";
+      }
+
+      // Validate Organization
       errors.orgName = !formData.orgName.trim() && "Organization is required!";
+      if (formData.orgName) {
+        const orgDoc = await getDoc(doc(db, "Organizations", formData.orgName));
+        if (!orgDoc.exists()) {
+          errors.orgName = "Organization does not exist";
+        }
+      }
+
+      // Validate Department (for agents only)
       if (type === "agent") {
         errors.department = !formData.department.trim() && "Department is required!";
         if (formData.department && !departments.some(d => d.name === formData.department)) {
           errors.department = "Selected department does not exist!";
         }
       }
-      const orgDoc = await getDoc(doc(db, "Organizations", formData.orgName));
-      if (!orgDoc.exists()) {
-        errors.orgName = "Organization does not exist";
-      }
-      const usersSnapshot = await getDocs(collection(db, "Users"));
-      const existingUsernames = usersSnapshot.docs.map(doc => doc.id);
-      if (existingUsernames.includes(formData.username))
-        errors.username = "Username already exists";
     }
     setFormErrors(errors);
     return Object.keys(errors).every(k => !errors[k]);
@@ -322,7 +356,8 @@ const AdminDashboard = () => {
         password: formData.password,
         orgName: formData.orgName,
         createdAt: new Date(),
-        role: "user"
+        role: "user",
+        passwordChange: true
       });
       setMessage("User added successfully!");
       setDialogs(d => ({ ...d, addUser: false }));
@@ -357,7 +392,8 @@ const AdminDashboard = () => {
         orgName: formData.orgName,
         department: formData.department,
         createdAt: new Date(),
-        role: "agent"
+        role: "agent",
+        passwordChange: true
       });
       setMessage("Agent added successfully!");
       setDialogs(d => ({ ...d, addAgent: false }));
@@ -504,7 +540,7 @@ const AdminDashboard = () => {
               fontSize: { xs: "1.1rem", sm: "1.25rem" },
             }}
           >
-            HELPMATE Admin
+            HELPMATE
           </Typography>
           <IconButton
             onClick={toggleDrawer}
@@ -588,8 +624,27 @@ const AdminDashboard = () => {
           color: NAVY,
           width: { xs: "100%", sm: drawerOpen ? `calc(100% - ${drawerWidth}px)` : "100%" },
           ml: { sm: drawerOpen ? `${drawerWidth}px` : 0 },
+          position: 'relative',
+          ...(showChangePasswordDialog && {
+            pointerEvents: 'none',
+            opacity: 0.5,
+          }),
         }}
       >
+        {showChangePasswordDialog && (
+          <Box
+            sx={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              bgcolor: 'rgba(0,0,0,0.3)',
+              zIndex: 999,
+            }}
+          />
+        )}
+
         {message && (
           <Box
             sx={{
@@ -639,7 +694,7 @@ const AdminDashboard = () => {
                 mb: 3,
               }}
             >
-              This is the admin home page. Use the navigation drawer to view and manage users, agents, tickets, and more.
+              
             </Typography>
             <Card
               sx={{
@@ -679,7 +734,7 @@ const AdminDashboard = () => {
               <Fade in={showAlerts} timeout={600}>
                 <Box sx={{ mt: 3 }}>
                   {/* CHANGE IS HERE: */}
-              
+
                   <EscalationAlert tickets={tickets} organization={adminData.orgName} />
                 </Box>
               </Fade>
@@ -1522,16 +1577,7 @@ const AdminDashboard = () => {
             >
               Reports
             </Typography>
-            <Typography
-              variant="body1"
-              mt={2}
-              sx={{
-                color: NAVY,
-                fontSize: { xs: "0.9rem", sm: "1.1rem", md: "1.4rem" },
-              }}
-            >
-              Reports feature is coming soon.
-            </Typography>
+            <Reports adminData={adminData} /> {/* <-- pass the prop! */}
           </Box>
         )}
 
@@ -1558,6 +1604,16 @@ const AdminDashboard = () => {
             SELECT_BG={SELECT_BG}
           />
         )}
+
+        {selectedIndex === 8 && (
+          <AdminSettings
+            username={adminData.username}
+            themeMode={themeMode}
+            setThemeMode={setThemeMode}
+            onLogout={handleLogout.confirm}
+          />
+        )}
+
       </Box>
 
       <Dialog
@@ -1615,25 +1671,8 @@ const AdminDashboard = () => {
           </Button>
         </DialogActions>
       </Dialog>
-      <Dialog
-        open={dialogs.addUser}
-        onClose={() => setDialogs(d => ({ ...d, addUser: false }))}
-        maxWidth="sm"
-        fullWidth
-        sx={{
-          "& .MuiDialog-paper": {
-            width: { xs: "90%", sm: "400px" },
-            maxWidth: "400px",
-            p: { xs: 1, sm: 2 },
-          },
-        }}
-      >
-        <DialogTitle
-          sx={{
-            color: NAVY,
-            fontSize: { xs: "1rem", sm: "1.1rem", md: "1.25rem" },
-          }}
-        >
+      <Dialog open={dialogs.addUser} onClose={() => setDialogs(d => ({ ...d, addUser: false }))} maxWidth="sm" fullWidth sx={{ "& .MuiDialog-paper": { width: { xs: "90%", sm: "400px" }, maxWidth: "400px", p: { xs: 1, sm: 2 } } }}>
+        <DialogTitle sx={{ color: NAVY, fontSize: { xs: "1rem", sm: "1.1rem", md: "1.25rem" } }}>
           Add New User
         </DialogTitle>
         <DialogContent>
@@ -1649,14 +1688,8 @@ const AdminDashboard = () => {
             error={!!formErrors.name}
             helperText={formErrors.name}
             sx={{
-              "& .MuiInputBase-input": {
-                color: NAVY,
-                fontSize: { xs: "0.8rem", sm: "0.9rem" },
-              },
-              "& .MuiInputLabel-root": {
-                color: NAVY,
-                fontSize: { xs: "0.8rem", sm: "0.9rem" },
-              },
+              "& .MuiInputBase-input": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
+              "& .MuiInputLabel-root": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
               "& .MuiOutlinedInput-root": {
                 "& fieldset": { borderColor: NAVY },
                 "&:hover fieldset": { borderColor: SELECT_BG },
@@ -1674,16 +1707,10 @@ const AdminDashboard = () => {
             value={formData.username}
             onChange={handleFormChange}
             error={!!formErrors.username}
-            helperText={formErrors.username}
+            helperText={formErrors.username || "Username must be 10 characters long, include letters, and can only use numbers, periods, or underscores."}
             sx={{
-              "& .MuiInputBase-input": {
-                color: NAVY,
-                fontSize: { xs: "0.8rem", sm: "0.9rem" },
-              },
-              "& .MuiInputLabel-root": {
-                color: NAVY,
-                fontSize: { xs: "0.8rem", sm: "0.9rem" },
-              },
+              "& .MuiInputBase-input": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
+              "& .MuiInputLabel-root": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
               "& .MuiOutlinedInput-root": {
                 "& fieldset": { borderColor: NAVY },
                 "&:hover fieldset": { borderColor: SELECT_BG },
@@ -1701,16 +1728,10 @@ const AdminDashboard = () => {
             value={formData.password}
             onChange={handleFormChange}
             error={!!formErrors.password}
-            helperText={formErrors.password}
+            helperText={formErrors.password || "Password must be 6-15 characters long, include at least one uppercase letter, one number, and one special character."}
             sx={{
-              "& .MuiInputBase-input": {
-                color: NAVY,
-                fontSize: { xs: "0.8rem", sm: "0.9rem" },
-              },
-              "& .MuiInputLabel-root": {
-                color: NAVY,
-                fontSize: { xs: "0.8rem", sm: "0.9rem" },
-              },
+              "& .MuiInputBase-input": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
+              "& .MuiInputLabel-root": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
               "& .MuiOutlinedInput-root": {
                 "& fieldset": { borderColor: NAVY },
                 "&:hover fieldset": { borderColor: SELECT_BG },
@@ -1731,14 +1752,8 @@ const AdminDashboard = () => {
             helperText={formErrors.orgName}
             disabled
             sx={{
-              "& .MuiInputBase-input": {
-                color: NAVY,
-                fontSize: { xs: "0.8rem", sm: "0.9rem" },
-              },
-              "& .MuiInputLabel-root": {
-                color: NAVY,
-                fontSize: { xs: "0.8rem", sm: "0.9rem" },
-              },
+              "& .MuiInputBase-input": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
+              "& .MuiInputLabel-root": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
               "& .MuiOutlinedInput-root": {
                 "& fieldset": { borderColor: NAVY },
                 "&:hover fieldset": { borderColor: SELECT_BG },
@@ -1750,11 +1765,7 @@ const AdminDashboard = () => {
         <DialogActions>
           <Button
             onClick={() => setDialogs(d => ({ ...d, addUser: false }))}
-            sx={{
-              color: NAVY,
-              fontSize: { xs: "0.8rem", sm: "0.9rem" },
-              minWidth: { xs: 80, sm: 100 },
-            }}
+            sx={{ color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" }, minWidth: { xs: 80, sm: 100 } }}
           >
             Cancel
           </Button>
@@ -1774,25 +1785,8 @@ const AdminDashboard = () => {
           </Button>
         </DialogActions>
       </Dialog>
-      <Dialog
-        open={dialogs.addAgent}
-        onClose={() => setDialogs(d => ({ ...d, addAgent: false }))}
-        maxWidth="sm"
-        fullWidth
-        sx={{
-          "& .MuiDialog-paper": {
-            width: { xs: "90%", sm: "400px" },
-            maxWidth: "400px",
-            p: { xs: 1, sm: 2 },
-          },
-        }}
-      >
-        <DialogTitle
-          sx={{
-            color: NAVY,
-            fontSize: { xs: "1rem", sm: "1.1rem", md: "1.25rem" },
-          }}
-        >
+      <Dialog open={dialogs.addAgent} onClose={() => setDialogs(d => ({ ...d, addAgent: false }))} maxWidth="sm" fullWidth sx={{ "& .MuiDialog-paper": { width: { xs: "90%", sm: "400px" }, maxWidth: "400px", p: { xs: 1, sm: 2 } } }}>
+        <DialogTitle sx={{ color: NAVY, fontSize: { xs: "1rem", sm: "1.1rem", md: "1.25rem" } }}>
           Add New Agent
         </DialogTitle>
         <DialogContent>
@@ -1808,14 +1802,8 @@ const AdminDashboard = () => {
             error={!!formErrors.name}
             helperText={formErrors.name}
             sx={{
-              "& .MuiInputBase-input": {
-                color: NAVY,
-                fontSize: { xs: "0.8rem", sm: "0.9rem" },
-              },
-              "& .MuiInputLabel-root": {
-                color: NAVY,
-                fontSize: { xs: "0.8rem", sm: "0.9rem" },
-              },
+              "& .MuiInputBase-input": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
+              "& .MuiInputLabel-root": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
               "& .MuiOutlinedInput-root": {
                 "& fieldset": { borderColor: NAVY },
                 "&:hover fieldset": { borderColor: SELECT_BG },
@@ -1833,16 +1821,10 @@ const AdminDashboard = () => {
             value={formData.username}
             onChange={handleFormChange}
             error={!!formErrors.username}
-            helperText={formErrors.username}
+            helperText={formErrors.username || "Username must be 10 characters long, include letters, and can only use numbers, periods, or underscores."}
             sx={{
-              "& .MuiInputBase-input": {
-                color: NAVY,
-                fontSize: { xs: "0.8rem", sm: "0.9rem" },
-              },
-              "& .MuiInputLabel-root": {
-                color: NAVY,
-                fontSize: { xs: "0.8rem", sm: "0.9rem" },
-              },
+              "& .MuiInputBase-input": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
+              "& .MuiInputLabel-root": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
               "& .MuiOutlinedInput-root": {
                 "& fieldset": { borderColor: NAVY },
                 "&:hover fieldset": { borderColor: SELECT_BG },
@@ -1860,16 +1842,10 @@ const AdminDashboard = () => {
             value={formData.password}
             onChange={handleFormChange}
             error={!!formErrors.password}
-            helperText={formErrors.password}
+            helperText={formErrors.password || "Password must be 6-15 characters long, include at least one uppercase letter, one number, and one special character."}
             sx={{
-              "& .MuiInputBase-input": {
-                color: NAVY,
-                fontSize: { xs: "0.8rem", sm: "0.9rem" },
-              },
-              "& .MuiInputLabel-root": {
-                color: NAVY,
-                fontSize: { xs: "0.8rem", sm: "0.9rem" },
-              },
+              "& .MuiInputBase-input": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
+              "& .MuiInputLabel-root": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
               "& .MuiOutlinedInput-root": {
                 "& fieldset": { borderColor: NAVY },
                 "&:hover fieldset": { borderColor: SELECT_BG },
@@ -1889,14 +1865,8 @@ const AdminDashboard = () => {
             error={!!formErrors.orgName}
             helperText={formErrors.orgName}
             sx={{
-              "& .MuiInputBase-input": {
-                color: NAVY,
-                fontSize: { xs: "0.8rem", sm: "0.9rem" },
-              },
-              "& .MuiInputLabel-root": {
-                color: NAVY,
-                fontSize: { xs: "0.8rem", sm: "0.9rem" },
-              },
+              "& .MuiInputBase-input": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
+              "& .MuiInputLabel-root": { color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" } },
               "& .MuiOutlinedInput-root": {
                 "& fieldset": { borderColor: NAVY },
                 "&:hover fieldset": { borderColor: SELECT_BG },
@@ -1939,16 +1909,11 @@ const AdminDashboard = () => {
               {formErrors.department}
             </Typography>
           )}
-
         </DialogContent>
         <DialogActions>
           <Button
             onClick={() => setDialogs(d => ({ ...d, addAgent: false }))}
-            sx={{
-              color: NAVY,
-              fontSize: { xs: "0.8rem", sm: "0.9rem" },
-              minWidth: { xs: 80, sm: 100 },
-            }}
+            sx={{ color: NAVY, fontSize: { xs: "0.8rem", sm: "0.9rem" }, minWidth: { xs: 80, sm: 100 } }}
           >
             Cancel
           </Button>
@@ -2078,6 +2043,47 @@ const AdminDashboard = () => {
           </Button>
           <Button onClick={handleAddOrganization} variant="contained" sx={{ color: NAVY, bgcolor: WHITE, border: `1px solid ${NAVY}`, "&:hover": { bgcolor: SELECT_BG, color: WHITE } }}>
             Add Organization
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog
+        open={showChangePasswordDialog}
+        onClose={() => setShowChangePasswordDialog(false)}
+        maxWidth="sm"
+        fullWidth
+        sx={{
+          "& .MuiDialog-paper": {
+            width: { xs: "90%", sm: "400px" },
+            maxWidth: "400px",
+            p: { xs: 1, sm: 2 },
+          },
+        }}
+      >
+        <DialogTitle sx={{ color: NAVY, fontSize: { xs: "1rem", sm: "1.1rem", md: "1.25rem" } }}>
+          Change Password Required
+        </DialogTitle>
+        <DialogContent>
+          <Typography sx={{ color: NAVY, fontSize: { xs: "0.9rem", sm: "1rem" } }}>
+            Please change your password before proceeding.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setSelectedIndex(8);
+              setShowChangePasswordDialog(false);
+            }}
+            variant="contained"
+            sx={{
+              color: NAVY,
+              bgcolor: WHITE,
+              border: `1px solid ${NAVY}`,
+              "&:hover": { bgcolor: SELECT_BG, color: WHITE },
+              fontSize: { xs: "0.8rem", sm: "0.9rem" },
+              minWidth: { xs: 80, sm: 100 },
+            }}
+          >
+            Go to Settings
           </Button>
         </DialogActions>
       </Dialog>

@@ -1,25 +1,20 @@
 import React, { useState } from 'react';
 import {
-  Box,
-  Typography,
-  TextField,
-  Button,
-  Link,
-  Alert,
-  Card,
-  CardContent,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  MenuItem,
+  Box, Typography, TextField, Button, Link, Alert, Card, CardContent, Dialog, DialogTitle, DialogContent, DialogActions,
+  MenuItem, Avatar, InputAdornment, Grid, AppBar, Toolbar,
 } from '@mui/material';
 import { doc, getDoc, setDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../firebase';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import Select from 'react-select';
 import { Country, State, City } from 'country-state-city';
-
+import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
+import EmailOutlinedIcon from '@mui/icons-material/EmailOutlined';
+import PhoneAndroidOutlinedIcon from '@mui/icons-material/PhoneAndroidOutlined';
+import LocationOnOutlinedIcon from '@mui/icons-material/LocationOnOutlined';
+import LinkedInIcon from '@mui/icons-material/LinkedIn';
+import TwitterIcon from '@mui/icons-material/Twitter';
+import InstagramIcon from '@mui/icons-material/Instagram';
 
 const Login = () => {
   const navigate = useNavigate();
@@ -28,6 +23,8 @@ const Login = () => {
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [openRequestForm, setOpenRequestForm] = useState(false);
+  const [openAboutUs, setOpenAboutUs] = useState(false);
+  const [openContactUs, setOpenContactUs] = useState(false);
   const [requestFormData, setRequestFormData] = useState({
     orgName: '',
     category: '',
@@ -50,7 +47,7 @@ const Login = () => {
   const [selectedCountry, setSelectedCountry] = useState(null);
   const [selectedState, setSelectedState] = useState(null);
   const [selectedCity, setSelectedCity] = useState(null);
-
+  const [showForceChangeDialog, setShowForceChangeDialog] = useState(false);
 
   const handleLogin = async () => {
     setError('');
@@ -133,6 +130,9 @@ const Login = () => {
       adminEmail: '',
       adminPhone: '',
     });
+    setSelectedCountry(null);
+    setSelectedState(null);
+    setSelectedCity(null);
   };
 
   const handleFormChange = (e) => {
@@ -168,7 +168,6 @@ const Login = () => {
       setFormError('Please enter valid phone numbers (exactly 10 digits, optional +).');
       return false;
     }
-
 
     return true;
   };
@@ -212,182 +211,716 @@ const Login = () => {
     'Other',
   ];
 
+  const countryOptions = Country.getAllCountries().map((c) => ({
+    label: c.name,
+    value: c.isoCode,
+  }));
+
+  const stateOptions = selectedCountry
+    ? State.getStatesOfCountry(selectedCountry.value).map((s) => ({
+        label: s.name,
+        value: s.isoCode,
+      }))
+    : [];
+
+  const cityOptions =
+    selectedCountry && selectedState
+      ? City.getCitiesOfState(selectedCountry.value, selectedState.value).map((city) => ({
+          label: city.name,
+          value: city.name,
+        }))
+      : [];
+
   return (
     <Box
       sx={{
         display: 'flex',
-        flexDirection: { xs: 'column', md: 'row' },
+        flexDirection: 'column',
         minHeight: '100vh',
         width: '100%',
         overflowX: 'hidden',
+        background: 'linear-gradient(135deg, #F5F7FA 0%, #E3F2FD 100%)',
       }}
     >
-      {/* Left Panel */}
-      <Box
+      {/* AppBar */}
+      <AppBar
+        position="fixed"
         sx={{
-          flex: 1,
-          background: 'linear-gradient(to top left, #5A189A, #90E0EF)',
-          color: '#fff',
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'center',
-          alignItems: { xs: 'center', md: 'flex-end' },
-          pr: { xs: 2, sm: 4, md: 10 },
-          py: { xs: 4, md: 0 },
-          textAlign: { xs: 'center', md: 'right' },
-          minHeight: { xs: '200px', sm: '240px', md: '100vh' },
+          bgcolor: 'rgba(255, 255, 255, 0.9)',
+          backdropFilter: 'blur(8px)',
+          boxShadow: '0 4px 16px rgba(20, 54, 109, 0.1)',
+          borderBottom: '1px solid rgba(20, 54, 109, 0.2)',
         }}
       >
-        <Box sx={{ px: { xs: 2, md: 0 }, maxWidth: { xs: '90%', md: 400 } }}>
+        <Toolbar
+          sx={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            px: { xs: 2, sm: 3 },
+          }}
+        >
           <Typography
-            variant="h2"
+            variant="h6"
+            component="div"
             sx={{
-              fontWeight: 'bold',
-              fontFamily: 'Poppins, serif',
-              fontSize: { xs: '1.5rem', sm: '2rem', md: '2.5rem' },
+              fontFamily: 'Inter, sans-serif',
+              fontWeight: 700,
+              color: '#3573d7ff',
+              fontSize: { xs: '1.5rem', sm: '1.75rem' },
+              letterSpacing: '0.02em',
             }}
           >
             Helpmate
           </Typography>
-          <Typography
-            variant="h6"
+          <Box sx={{ display: 'flex', gap: { xs: 1, sm: 2 } }}>
+            <Button
+              onClick={() => setOpenAboutUs(true)}
+              sx={{
+                fontFamily: 'Inter, sans-serif',
+                fontWeight: 500,
+                color: '#FFFFFF',
+                textTransform: 'none',
+                fontSize: { xs: '0.9rem', sm: '1rem' },
+                px: { xs: 2, sm: 3 },
+                py: 1,
+                borderRadius: 8,
+                background: 'linear-gradient(90deg, #3573d7ff 0%, #4A6FA5 100%)',
+                boxShadow: '0 4px 12px rgba(20, 54, 109, 0.2)',
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  background: 'linear-gradient(90deg, #0F2A52 0%, #3B5C8C 100%)',
+                  transform: 'scale(1.05)',
+                  boxShadow: '0 6px 16px rgba(20, 54, 109, 0.3)',
+                },
+              }}
+              aria-label="About Us"
+            >
+              About Us
+            </Button>
+            <Button
+              onClick={() => setOpenContactUs(true)}
+              sx={{
+                fontFamily: 'Inter, sans-serif',
+                fontWeight: 500,
+                color: '#FFFFFF',
+                textTransform: 'none',
+                fontSize: { xs: '0.9rem', sm: '1rem' },
+                px: { xs: 2, sm: 3 },
+                py: 1,
+                borderRadius: 8,
+                background: 'linear-gradient(90deg, #3573d7ff 0%, #4A6FA5 100%)',
+                boxShadow: '0 4px 12px rgba(20, 54, 109, 0.2)',
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  background: 'linear-gradient(90deg, #0F2A52 0%, #3B5C8C 100%)',
+                  transform: 'scale(1.05)',
+                  boxShadow: '0 6px 16px rgba(20, 54, 109, 0.3)',
+                },
+              }}
+              aria-label="Contact Us"
+            >
+              Contact Us
+            </Button>
+          </Box>
+        </Toolbar>
+      </AppBar>
+
+      {/* Main Content */}
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: { xs: 'column', md: 'row' },
+          flexGrow: 1,
+          mt: { xs: 8, sm: 9 },
+        }}
+      >
+        {/* Left Panel with Hero Image + Logo */}
+        <Box
+          sx={{
+            flex: 1.2,
+            position: 'relative',
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            alignItems: 'center',
+            py: { xs: 4, md: 0 },
+            minHeight: { xs: '250px', md: '100vh' },
+          }}
+        >
+          <Box
             sx={{
-              mt: 2,
-              fontFamily: 'Roboto, sans-serif',
-              fontSize: { xs: '0.9rem', sm: '1rem', md: '1.125rem' },
-              maxWidth: '100%',
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundImage:
+                'url(https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=1200&q=80)',
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+              filter: 'blur(3px)',
+              zIndex: 0,
+            }}
+          />
+          <Box
+            sx={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'linear-gradient(135deg, rgba(24, 71, 147, 0.8) 0%, rgba(57, 119, 211, 0.7) 100%)',
+              zIndex: 1,
+            }}
+          />
+          <Box
+            sx={{
+              zIndex: 2,
+              textAlign: 'center',
+              px: { xs: 2, md: 4 },
+              maxWidth: '500px',
+              transition: 'transform 0.3s ease',
+              '&:hover': { transform: 'scale(1.05)' },
             }}
           >
-            Manage all your support teams, organizations, and tickets from one powerful dashboard.
-          </Typography>
+            <Typography
+              variant="h2"
+              sx={{
+                fontWeight: 700,
+                fontFamily: 'Inter, sans-serif',
+                fontSize: { xs: '2rem', sm: '2.5rem', md: '3.5rem' },
+                color: '#FFFFFF',
+                textShadow: '0px 4px 16px rgba(20, 54, 109, 0.3)',
+                letterSpacing: '0.05em',
+                mb: 1.5,
+              }}
+            >
+              Helpmate
+            </Typography>
+            <Typography
+              variant="h6"
+              sx={{
+                fontFamily: 'Inter, sans-serif',
+                fontSize: { xs: '1rem', sm: '1.125rem', md: '1.25rem' },
+                color: '#FFFFFF',
+                opacity: 0.9,
+                letterSpacing: '0.02em',
+                lineHeight: 1.6,
+                fontWeight: 400,
+              }}
+            >
+              Streamline your support teams and tickets with our intuitive, all-in-one dashboard.
+            </Typography>
+          </Box>
+        </Box>
+
+        {/* Right Panel (Login Form) */}
+        <Box
+          sx={{
+            flex: 1,
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            py: { xs: 4, md: 0 },
+            minHeight: { xs: 'auto', md: '100vh' },
+            background: { xs: '#F5F7FA', md: 'transparent' },
+            zIndex: 3,
+          }}
+        >
+          <Card
+            sx={{
+              width: { xs: '90%', sm: 450 },
+              maxWidth: 480,
+              p: { xs: 3, sm: 4 },
+              borderRadius: 12,
+              boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
+              background: 'rgba(255, 255, 255, 0.9)',
+              backdropFilter: 'blur(8px)',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              transition: 'all 0.3s ease',
+              '&:hover': {
+                transform: 'scale(1.02)',
+                boxShadow: '0 12px 40px rgba(20, 54, 109, 0.2)',
+              },
+            }}
+          >
+            <CardContent>
+              <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', mb: 3 }}>
+                <Avatar
+                  src="https://cdn-icons-png.flaticon.com/512/3135/3135715.png"
+                  sx={{ width: 56, height: 56, bgcolor: '#E3F2FD', boxShadow: '0 4px 16px rgba(20, 54, 109, 0.3)', mr: 2 }}
+                />
+                <Typography
+                  variant="h4"
+                  component="h1"
+                  sx={{
+                    fontWeight: 600,
+                    fontFamily: 'Inter, sans-serif',
+                    color: '#3573d7ff',
+                    fontSize: { xs: '1.75rem', sm: '2rem' },
+                    letterSpacing: '0.02em',
+                  }}
+                >
+                  Welcome Back
+                </Typography>
+              </Box>
+
+              <TextField
+                fullWidth
+                margin="normal"
+                label="Username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                autoComplete="username"
+                sx={{
+                  '& .MuiInputBase-root': { minHeight: '50px', borderRadius: '8px' },
+                  '& .MuiOutlinedInput-root': {
+                    '& fieldset': { borderColor: '#90CAF9' },
+                    '&:hover fieldset': { borderColor: '#4A6FA5' },
+                    '&.Mui-focused fieldset': { borderColor: '#3573d7ff' },
+                  },
+                }}
+                inputProps={{ 'aria-label': 'Username' }}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <EmailOutlinedIcon sx={{ color: '#3573d7ff' }} />
+                    </InputAdornment>
+                  ),
+                }}
+              />
+              <TextField
+                fullWidth
+                margin="normal"
+                label="Password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                sx={{
+                  '& .MuiInputBase-root': { minHeight: '50px', borderRadius: '8px' },
+                  '& .MuiOutlinedInput-root': {
+                    '& fieldset': { borderColor: '#90CAF9' },
+                    '&:hover fieldset': { borderColor: '#4A6FA5' },
+                    '&.Mui-focused fieldset': { borderColor: '#3573d7ff' },
+                  },
+                }}
+                inputProps={{ 'aria-label': 'Password' }}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <LockOutlinedIcon sx={{ color: '#3573d7ff' }} />
+                    </InputAdornment>
+                  ),
+                }}
+              />
+
+              {error && (
+                <Alert severity="error" sx={{ mt: 2, fontSize: { xs: '0.85rem', sm: '0.9rem' }, bgcolor: '#FFE4E4' }}>
+                  {error}
+                </Alert>
+              )}
+
+              <Button
+                variant="contained"
+                fullWidth
+                sx={{
+                  mt: 3,
+                  py: 1.5,
+                  fontWeight: 600,
+                  borderRadius: 8,
+                  background: 'linear-gradient(90deg, #3573d7ff 0%, #4A6FA5 100%)',
+                  color: '#FFFFFF',
+                  textTransform: 'none',
+                  fontSize: '1.1rem',
+                  fontFamily: 'Inter, sans-serif',
+                  boxShadow: '0 4px 16px rgba(20, 54, 109, 0.3)',
+                  transition: 'all 0.3s ease',
+                  '&:hover': {
+                    background: 'linear-gradient(90deg, #0F2A52 0%, #3B5C8C 100%)',
+                    boxShadow: '0 6px 20px rgba(20, 54, 109, 0.4)',
+                    transform: 'scale(1.02)',
+                  },
+                }}
+                onClick={handleLogin}
+                aria-label="Login"
+                endIcon={<LockOutlinedIcon />}
+              >
+                Login
+              </Button>
+
+              {successMessage && (
+                <Alert
+                  severity="success"
+                  sx={{
+                    mt: 2,
+                    color: '#3573d7ff',
+                    bgcolor: '#E3F2FD',
+                    fontSize: { xs: '0.85rem', sm: '0.9rem' },
+                  }}
+                >
+                  {successMessage}
+                </Alert>
+              )}
+
+              <Box sx={{ mt: 2.5, textAlign: 'center' }}>
+                <Link
+                  href="#"
+                  onClick={handleOpenRequestForm}
+                  sx={{
+                    fontFamily: 'Inter, sans-serif',
+                    color: '#3573d7ff',
+                    fontSize: { xs: '0.95rem', sm: '1rem' },
+                    fontWeight: 500,
+                    letterSpacing: '0.02em',
+                    textDecoration: 'none',
+                    px: 1.5,
+                    py: 0.5,
+                    borderRadius: '8px',
+                    transition: 'all 0.2s ease',
+                    '&:hover': {
+                      color: '#4A6FA5',
+                      background: 'rgba(20, 54, 109, 0.1)',
+                      textDecoration: 'underline',
+                    },
+                  }}
+                >
+                  Request Access for Your Organization
+                </Link>
+              </Box>
+            </CardContent>
+          </Card>
         </Box>
       </Box>
 
-      {/* Right Panel */}
+      {/* Footer */}
       <Box
+        component="footer"
         sx={{
-          flex: 1,
-          display: 'flex',
-          justifyContent: { xs: 'center', md: 'flex-start' },
-          alignItems: 'center',
-          pl: { xs: 2, sm: 4, md: 8 },
-          py: { xs: 4, md: 0 },
-          minHeight: { xs: 'auto', md: '100vh' },
-          background: { xs: '#f8f9fa', md: 'none' },
+          bgcolor: '#111',
+          color: '#ccc',
+          p: { xs: 2, sm: 3 },
+          width: '100%',
+          mt: 'auto',
+          borderTop: '1px solid #444',
         }}
       >
-        <Card
-          sx={{
-            width: { xs: '90%', sm: '100%' },
-            maxWidth: { xs: 340, sm: 400 },
-            p: { xs: 2, sm: 3 },
-            borderRadius: 4,
-            boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
-            background: 'linear-gradient(to bottom right, #ffffff, #f8f9fa)',
-            transition: 'transform 0.3s ease',
-            '&:hover': {
-              transform: { xs: 'none', sm: 'scale(1.01)' },
-            },
-            mx: { xs: 2, md: 0 },
-          }}
-        >
-          <CardContent>
+        <Grid container spacing={{ xs: 2, sm: 3 }} justifyContent="center">
+          <Grid item xs={12}>
             <Typography
-              variant="h4"
-              component="h1"
+              variant="body2"
               sx={{
-                mb: 3,
-                fontWeight: 'bold',
-                fontFamily: 'Poppins, sans-serif',
-                textAlign: 'center',
-                color: '#333',
-                fontSize: { xs: '1.5rem', sm: '1.7rem', md: '2rem' },
-              }}
-            >
-              Welcome Back
-            </Typography>
-
-            <TextField
-              fullWidth
-              margin="normal"
-              label="Username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              autoComplete="username"
-              sx={{ '& .MuiInputBase-root': { minHeight: '48px' } }}
-              inputProps={{ 'aria-label': 'Username' }}
-            />
-            <TextField
-              fullWidth
-              margin="normal"
-              label="Password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-              sx={{ '& .MuiInputBase-root': { minHeight: '48px' } }}
-              inputProps={{ 'aria-label': 'Password' }}
-            />
-
-            {error && (
-              <Alert severity="error" sx={{ mt: 2, fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>
-                {error}
-              </Alert>
-            )}
-
-            <Button
-              variant="contained"
-              fullWidth
-              sx={{
-                mt: 3,
-                py: 1.5,
+                color: '#fff',
                 fontWeight: 600,
-                borderRadius: 2,
-                background: 'linear-gradient(to right, #5A189A, #90E0EF)',
-                color: 'white',
-                textTransform: 'none',
-                minHeight: '48px',
-                '&:hover': {
-                  background: 'linear-gradient(to right, #4C1D95, #48CAE4)',
-                },
+                fontSize: { xs: '0.9rem', sm: '1rem' },
+                textAlign: 'center',
+                mb: 2,
               }}
-              onClick={handleLogin}
-              aria-label="Login"
             >
-              Login
-            </Button>
-
-            {successMessage && (
-              <Alert
-                severity="info"
-                sx={{
-                  mt: 2,
-                  color: '#0d47a1',
-                  bgcolor: '#e3f2fd',
-                  fontSize: { xs: '0.8rem', sm: '0.875rem' },
-                }}
-              >
-                {successMessage}
-              </Alert>
-            )}
-
-            <Box sx={{ mt: 2, textAlign: 'center' }}>
+              © 2025 Helpmate. All rights reserved.
+            </Typography>
+            <Typography
+              variant="caption"
+              sx={{
+                color: '#ccc',
+                fontSize: { xs: '0.75rem', sm: '0.8rem' },
+                textAlign: 'center',
+                display: 'block',
+                mb: 2,
+              }}
+            >
+              Quick Links
+            </Typography>
+            <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, flexWrap: 'wrap' }}>
               <Link
                 href="#"
-                onClick={handleOpenRequestForm}
+                onClick={() => setOpenAboutUs(true)}
                 sx={{
-                  fontFamily: 'Roboto, sans-serif',
-                  color: '#5A189A',
+                  color: '#ccc',
+                  textDecoration: 'none',
                   fontSize: { xs: '0.8rem', sm: '0.875rem' },
-                  '&:hover': { color: '#4C1D95', textDecoration: 'underline' },
+                  '&:hover': { color: '#4A6FA5', textDecoration: 'underline' },
                 }}
+                aria-label="About Us"
               >
-                Request Access for Your Organization
+                About Us
+              </Link>
+              <Link
+                href="#"
+                onClick={() => setOpenContactUs(true)}
+                sx={{
+                  color: '#ccc',
+                  textDecoration: 'none',
+                  fontSize: { xs: '0.8rem', sm: '0.875rem' },
+                  '&:hover': { color: '#4A6FA5', textDecoration: 'underline' },
+                }}
+                aria-label="Contact Us"
+              >
+                Contact Us
+              </Link>
+              <Link
+                href="#"
+                sx={{
+                  color: '#ccc',
+                  textDecoration: 'none',
+                  fontSize: { xs: '0.8rem', sm: '0.875rem' },
+                  '&:hover': { color: '#4A6FA5', textDecoration: 'underline' },
+                }}
+                aria-label="Privacy Policy"
+              >
+                Privacy Policy
+              </Link>
+              <Link
+                href="#"
+                sx={{
+                  color: '#ccc',
+                  textDecoration: 'none',
+                  fontSize: { xs: '0.8rem', sm: '0.875rem' },
+                  '&:hover': { color: '#4A6FA5', textDecoration: 'underline' },
+                }}
+                aria-label="Terms of Service"
+              >
+                Terms of Service
               </Link>
             </Box>
-          </CardContent>
-        </Card>
+            <Box sx={{ textAlign: 'center', mt: 2 }}>
+              <Typography
+                variant="caption"
+                sx={{
+                  color: '#ccc',
+                  fontSize: { xs: '0.75rem', sm: '0.8rem' },
+                }}
+              >
+                📧 support@helpmate.com | 📞 +1 (234) 567-8900
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, mt: 2 }}>
+              <Link href="https://www.linkedin.com" target="_blank" aria-label="LinkedIn">
+                <LinkedInIcon sx={{ color: '#ccc', fontSize: '1.5rem', '&:hover': { color: '#4A6FA5' } }} />
+              </Link>
+              <Link href="https://www.twitter.com" target="_blank" aria-label="Twitter">
+                <TwitterIcon sx={{ color: '#ccc', fontSize: '1.5rem', '&:hover': { color: '#4A6FA5' } }} />
+              </Link>
+              <Link href="https://www.instagram.com" target="_blank" aria-label="Instagram">
+                <InstagramIcon sx={{ color: '#ccc', fontSize: '1.5rem', '&:hover': { color: '#4A6FA5' } }} />
+              </Link>
+            </Box>
+            <Typography
+              variant="caption"
+              sx={{
+                color: '#ccc',
+                fontSize: { xs: '0.75rem', sm: '0.8rem' },
+                textAlign: 'center',
+                display: 'block',
+                mt: 2,
+              }}
+            >
+              “Smart, AI-powered support for modern organizations.”
+            </Typography>
+          </Grid>
+        </Grid>
       </Box>
+
+      {/* About Us Dialog */}
+      <Dialog
+        open={openAboutUs}
+        onClose={() => setOpenAboutUs(false)}
+        sx={{
+          '& .MuiDialog-paper': {
+            borderRadius: 12,
+            maxWidth: { xs: '95%', sm: 640 },
+            p: 3,
+            bgcolor: 'rgba(255, 255, 255, 0.95)',
+            backdropFilter: 'blur(8px)',
+            boxShadow: '0 8px 32px rgba(20, 54, 109, 0.2)',
+            transition: 'all 0.3s ease',
+          },
+        }}
+        aria-labelledby="about-us-dialog-title"
+      >
+        <DialogTitle
+          id="about-us-dialog-title"
+          sx={{
+            fontFamily: 'Inter, sans-serif',
+            color: '#3573d7ff',
+            fontWeight: 600,
+            fontSize: { xs: '1.5rem', sm: '1.75rem' },
+          }}
+        >
+          About Us
+        </DialogTitle>
+        <DialogContent>
+          <Typography
+            variant="body1"
+            sx={{
+              fontFamily: 'Inter, sans-serif',
+              color: '#333',
+              lineHeight: 1.6,
+              fontSize: { xs: '0.9rem', sm: '1rem' },
+            }}
+          >
+            Helpmate is an AI-powered ticket management system designed to modernize the way organizations handle support and service requests. Our platform provides a centralized solution for creating, tracking, and resolving tickets with speed and accuracy. With features like AI-driven ticket prioritization, smart resolution suggestions, SLA monitoring, and real-time updates, Helpmate ensures efficiency and transparency at every stage of the support process. Built using React.js, Node.js, and Firebase, the system delivers a secure, scalable, and user-friendly experience for businesses of all sizes. Our goal is to empower organizations with intelligent tools that improve communication, boost productivity, and enhance customer satisfaction.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setOpenAboutUs(false)}
+            sx={{
+              fontFamily: 'Inter, sans-serif',
+              color: '#3573d7ff',
+              textTransform: 'none',
+              fontWeight: 500,
+              borderRadius: 8,
+              px: 3,
+              transition: 'all 0.2s ease',
+              '&:hover': {
+                background: 'rgba(20, 54, 109, 0.1)',
+                color: '#4A6FA5',
+              },
+            }}
+            aria-label="Close"
+          >
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Contact Us Dialog */}
+      <Dialog
+        open={openContactUs}
+        onClose={() => setOpenContactUs(false)}
+        sx={{
+          '& .MuiDialog-paper': {
+            borderRadius: 12,
+            maxWidth: { xs: '95%', sm: 640 },
+            p: 3,
+            bgcolor: 'rgba(255, 255, 255, 0.95)',
+            backdropFilter: 'blur(8px)',
+            boxShadow: '0 8px 32px rgba(20, 54, 109, 0.2)',
+            transition: 'all 0.3s ease',
+          },
+        }}
+        aria-labelledby="contact-us-dialog-title"
+      >
+        <DialogTitle
+          id="contact-us-dialog-title"
+          sx={{
+            fontFamily: 'Inter, sans-serif',
+            color: '#3573d7ff',
+            fontWeight: 600,
+            fontSize: { xs: '1.5rem', sm: '1.75rem' },
+          }}
+        >
+          Contact Us
+        </DialogTitle>
+        <DialogContent>
+          <Typography
+            variant="body1"
+            sx={{
+              fontFamily: 'Inter, sans-serif',
+              color: '#333',
+              lineHeight: 1.6,
+              fontSize: { xs: '0.9rem', sm: '1rem' },
+              mb: 1,
+            }}
+          >
+            <strong>Email:</strong> support@helpmate.com
+          </Typography>
+          <Typography
+            variant="body1"
+            sx={{
+              fontFamily: 'Inter, sans-serif',
+              color: '#333',
+              lineHeight: 1.6,
+              fontSize: { xs: '0.9rem', sm: '1rem' },
+              mb: 1,
+            }}
+          >
+            <strong>📞 Phone:</strong> +1 (234) 567-8900
+          </Typography>
+          <Typography
+            variant="body1"
+            sx={{
+              fontFamily: 'Inter, sans-serif',
+              color: '#333',
+              lineHeight: 1.6,
+              fontSize: { xs: '0.9rem', sm: '1rem' },
+              mb: 1,
+            }}
+          >
+            <strong>🏢 Address:</strong> Infapp Santhosh Nagar, Udupi
+          </Typography>
+          <Typography
+            variant="body1"
+            sx={{
+              fontFamily: 'Inter, sans-serif',
+              color: '#333',
+              lineHeight: 1.6,
+              fontSize: { xs: '0.9rem', sm: '1rem' },
+              mb: 1,
+            }}
+          >
+            <strong>🕒 Business Hours:</strong> Monday – Friday, 9:00 AM – 6:00 PM IST
+          </Typography>
+          <Typography
+            variant="body1"
+            sx={{
+              fontFamily: 'Inter, sans-serif',
+              color: '#333',
+              lineHeight: 1.6,
+              fontSize: { xs: '0.9rem', sm: '1rem' },
+              mb: 1,
+            }}
+          >
+            <strong>💬 Feedback:</strong> We value your feedback to improve our services — feel free to share your suggestions.
+          </Typography>
+          <Typography
+            variant="body1"
+            sx={{
+              fontFamily: 'Inter, sans-serif',
+              color: '#333',
+              lineHeight: 1.6,
+              fontSize: { xs: '0.9rem', sm: '1rem' },
+            }}
+          >
+            <strong>🔗 Follow Us:</strong>{' '}
+            <Link href="https://www.linkedin.com" target="_blank" sx={{ color: '#3573d7ff', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>
+              LinkedIn
+            </Link>
+            {' | '}
+            <Link href="https://www.twitter.com" target="_blank" sx={{ color: '#3573d7ff', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>
+              Twitter
+            </Link>
+            {' | '}
+            <Link href="https://www.instagram.com" target="_blank" sx={{ color: '#3573d7ff', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>
+              Instagram
+            </Link>
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setOpenContactUs(false)}
+            sx={{
+              fontFamily: 'Inter, sans-serif',
+              color: '#3573d7ff',
+              textTransform: 'none',
+              fontWeight: 500,
+              borderRadius: 8,
+              px: 3,
+              transition: 'all 0.2s ease',
+              '&:hover': {
+                background: 'rgba(20, 54, 109, 0.1)',
+                color: '#4A6FA5',
+              },
+            }}
+            aria-label="Close"
+          >
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Request Access Form Dialog */}
       <Dialog
@@ -395,9 +928,13 @@ const Login = () => {
         onClose={handleCloseRequestForm}
         sx={{
           '& .MuiDialog-paper': {
-            borderRadius: '12px',
-            maxWidth: { xs: '90%', sm: 600 },
-            p: 2,
+            borderRadius: 12,
+            maxWidth: { xs: '95%', sm: 640 },
+            p: 3,
+            bgcolor: 'rgba(255, 255, 255, 0.95)',
+            backdropFilter: 'blur(8px)',
+            boxShadow: '0 8px 32px rgba(20, 54, 109, 0.2)',
+            transition: 'all 0.3s ease',
           },
         }}
         aria-labelledby="request-access-dialog-title"
@@ -405,24 +942,31 @@ const Login = () => {
         <DialogTitle
           id="request-access-dialog-title"
           sx={{
-            fontFamily: 'Poppins, sans-serif',
-            color: '#5A189A',
+            fontFamily: 'Inter, sans-serif',
+            color: '#3573d7ff',
             fontWeight: 600,
-            fontSize: { xs: '1.25rem', sm: '1.5rem' },
+            fontSize: { xs: '1.5rem', sm: '1.75rem' },
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.5,
           }}
         >
-          Request Access for Your Organization
+          <Avatar
+            src="https://cdn-icons-png.flaticon.com/512/2991/2991075.png"
+            sx={{ width: 40, height: 40, bgcolor: '#E3F2FD', boxShadow: '0 4px 12px rgba(20, 54, 109, 0.2)' }}
+          />
+          Request Organization Access
         </DialogTitle>
         <DialogContent>
-          <Box component="form" sx={{ mt: 1 }}>
-            {/* Organization Details */}
+          <Box component="form" sx={{ mt: 1.5 }}>
             <Typography
               variant="h6"
               sx={{
-                fontFamily: 'Roboto, sans-serif',
-                color: '#333',
-                mb: 1,
-                fontSize: { xs: '1rem', sm: '1.125rem' },
+                fontFamily: 'Inter, sans-serif',
+                color: '#3573d7ff',
+                mb: 1.5,
+                fontSize: { xs: '1.1rem', sm: '1.25rem' },
+                fontWeight: 600,
               }}
             >
               Organization Details
@@ -435,7 +979,14 @@ const Login = () => {
               value={requestFormData.orgName}
               onChange={handleFormChange}
               required
-              sx={{ '& .MuiInputBase-root': { minHeight: '48px' } }}
+              sx={{
+                '& .MuiInputBase-root': { minHeight: '50px', borderRadius: '8px' },
+                '& .MuiOutlinedInput-root': {
+                  '& fieldset': { borderColor: '#90CAF9' },
+                  '&:hover fieldset': { borderColor: '#4A6FA5' },
+                  '&.Mui-focused fieldset': { borderColor: '#3573d7ff' },
+                },
+              }}
               inputProps={{ 'aria-label': 'Organization Name' }}
             />
             <TextField
@@ -447,7 +998,14 @@ const Login = () => {
               value={requestFormData.category}
               onChange={handleFormChange}
               required
-              sx={{ '& .MuiInputBase-root': { minHeight: '48px' } }}
+              sx={{
+                '& .MuiInputBase-root': { minHeight: '50px', borderRadius: '8px' },
+                '& .MuiOutlinedInput-root': {
+                  '& fieldset': { borderColor: '#90CAF9' },
+                  '&:hover fieldset': { borderColor: '#4A6FA5' },
+                  '&.Mui-focused fieldset': { borderColor: '#3573d7ff' },
+                },
+              }}
               inputProps={{ 'aria-label': 'Category' }}
             >
               {categories.map((cat) => (
@@ -465,19 +1023,47 @@ const Login = () => {
               value={requestFormData.orgEmail}
               onChange={handleFormChange}
               required
-              sx={{ '& .MuiInputBase-root': { minHeight: '48px' } }}
+              sx={{
+                '& .MuiInputBase-root': { minHeight: '50px', borderRadius: '8px' },
+                '& .MuiOutlinedInput-root': {
+                  '& fieldset': { borderColor: '#90CAF9' },
+                  '&:hover fieldset': { borderColor: '#4A6FA5' },
+                  '&.Mui-focused fieldset': { borderColor: '#3573d7ff' },
+                },
+              }}
               inputProps={{ 'aria-label': 'Organization Email' }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <EmailOutlinedIcon sx={{ color: '#3573d7ff' }} />
+                  </InputAdornment>
+                ),
+              }}
             />
             <TextField
               fullWidth
               margin="normal"
               label="Organization Phone Number"
               name="orgPhone"
-              value={requestFormData.organizationPhone}
+              value={requestFormData.orgPhone}
               onChange={handleFormChange}
               required
-              sx={{ '& .MuiInputBase-root': { minHeight: '48px' } }}
+              sx={{
+                '& .MuiInputBase-root': { minHeight: '50px', borderRadius: '8px' },
+                '& .MuiOutlinedInput-root': {
+                  '& fieldset': { borderColor: '#90CAF9' },
+                  '&:hover fieldset': { borderColor: '#4A6FA5' },
+                  '&.Mui-focused fieldset': { borderColor: '#3573d7ff' },
+                },
+              }}
               inputProps={{ 'aria-label': 'Organization Phone Number' }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <PhoneAndroidOutlinedIcon sx={{ color: '#3573d7ff' }} />
+                  </InputAdornment>
+                ),
+              }}
             />
             <TextField
               fullWidth
@@ -486,17 +1072,25 @@ const Login = () => {
               name="website"
               value={requestFormData.website}
               onChange={handleFormChange}
-              sx={{ '& .MuiInputBase-root': { minHeight: '48px' } }}
+              sx={{
+                '& .MuiInputBase-root': { minHeight: '50px', borderRadius: '8px' },
+                '& .MuiOutlinedInput-root': {
+                  '& fieldset': { borderColor: '#90CAF9' },
+                  '&:hover fieldset': { borderColor: '#4A6FA5' },
+                  '&.Mui-focused fieldset': { borderColor: '#3573d7ff' },
+                },
+              }}
               inputProps={{ 'aria-label': 'Website' }}
             />
             <Typography
               variant="h6"
               sx={{
-                fontFamily: 'Roboto, sans-serif',
-                color: '#333',
+                fontFamily: 'Inter, sans-serif',
+                color: '#3573d7ff',
                 mt: 2,
-                mb: 1,
-                fontSize: { xs: '1rem', sm: '1.125rem' },
+                mb: 1.5,
+                fontSize: { xs: '1.1rem', sm: '1.25rem' },
+                fontWeight: 600,
               }}
             >
               Address
@@ -509,17 +1103,29 @@ const Login = () => {
               value={requestFormData.address.street}
               onChange={handleFormChange}
               required
-              sx={{ '& .MuiInputBase-root': { minHeight: '48px' } }}
+              sx={{
+                '& .MuiInputBase-root': { minHeight: '50px', borderRadius: '8px' },
+                '& .MuiOutlinedInput-root': {
+                  '& fieldset': { borderColor: '#90CAF9' },
+                  '&:hover fieldset': { borderColor: '#4A6FA5' },
+                  '&.Mui-focused fieldset': { borderColor: '#3573d7ff' },
+                },
+              }}
               inputProps={{ 'aria-label': 'Street' }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <LocationOnOutlinedIcon sx={{ color: '#3573d7ff' }} />
+                  </InputAdornment>
+                ),
+              }}
             />
-            {/* Country Select */}
             <Box sx={{ mt: 2 }}>
-              <label style={{ fontWeight: 500 }}>Country</label>
+              <Typography sx={{ fontWeight: 500, fontFamily: 'Inter, sans-serif', color: '#3573d7ff' }}>
+                Country
+              </Typography>
               <Select
-                options={Country.getAllCountries().map((c) => ({
-                  label: c.name,
-                  value: c.isoCode,
-                }))}
+                options={countryOptions}
                 value={selectedCountry}
                 onChange={(selected) => {
                   setSelectedCountry(selected);
@@ -527,71 +1133,124 @@ const Login = () => {
                   setSelectedCity(null);
                   setRequestFormData((prev) => ({
                     ...prev,
-                    address: { ...prev.address, country: selected.label },
+                    address: { ...prev.address, country: selected ? selected.label : '', state: '', city: '' },
                   }));
                 }}
                 placeholder="Select Country"
+                styles={{
+                  menu: (provided) => ({ ...provided, zIndex: 10, borderRadius: '8px' }),
+                  control: (provided) => ({
+                    ...provided,
+                    borderRadius: '8px',
+                    borderColor: '#90CAF9',
+                    '&:hover': { borderColor: '#4A6FA5' },
+                    boxShadow: 'none',
+                    minHeight: '50px',
+                  }),
+                  option: (provided, state) => ({
+                    ...provided,
+                    backgroundColor: state.isSelected ? '#3573d7ff' : state.isFocused ? '#E3F2FD' : '#FFFFFF',
+                    color: state.isSelected ? '#FFFFFF' : '#3573d7ff',
+                  }),
+                }}
               />
             </Box>
-
-            {/* State Select */}
             <Box sx={{ mt: 2 }}>
-              <label style={{ fontWeight: 500 }}>State</label>
+              <Typography sx={{ fontWeight: 500, fontFamily: 'Inter, sans-serif', color: '#3573d7ff' }}>
+                State
+              </Typography>
               <Select
-                options={
-                  selectedCountry
-                    ? State.getStatesOfCountry(selectedCountry.value).map((s) => ({
-                      label: s.name,
-                      value: s.isoCode,
-                    }))
-                    : []
-                }
+                options={stateOptions}
                 value={selectedState}
                 onChange={(selected) => {
                   setSelectedState(selected);
                   setSelectedCity(null);
                   setRequestFormData((prev) => ({
                     ...prev,
-                    address: { ...prev.address, state: selected.label },
+                    address: { ...prev.address, state: selected ? selected.label : '', city: '' },
                   }));
                 }}
                 placeholder="Select State"
                 isDisabled={!selectedCountry}
+                styles={{
+                  menu: (provided) => ({ ...provided, zIndex: 10, borderRadius: '8px' }),
+                  control: (provided) => ({
+                    ...provided,
+                    borderRadius: '8px',
+                    borderColor: '#90CAF9',
+                    '&:hover': { borderColor: '#4A6FA5' },
+                    boxShadow: 'none',
+                    minHeight: '50px',
+                  }),
+                  option: (provided, state) => ({
+                    ...provided,
+                    backgroundColor: state.isSelected ? '#3573d7ff' : state.isFocused ? '#E3F2FD' : '#FFFFFF',
+                    color: state.isSelected ? '#FFFFFF' : '#3573d7ff',
+                  }),
+                }}
               />
             </Box>
-
-            {/* City Select */}
             <Box sx={{ mt: 2 }}>
-              <label style={{ fontWeight: 500 }}>City</label>
+              <Typography sx={{ fontWeight: 500, fontFamily: 'Inter, sans-serif', color: '#3573d7ff' }}>
+                City
+              </Typography>
               <Select
-                options={
-                  selectedCountry && selectedState
-                    ? City.getCitiesOfState(selectedCountry.value, selectedState.value).map(
-                      (city) => ({ label: city.name, value: city.name })
-                    )
-                    : []
-                }
+                options={cityOptions}
                 value={selectedCity}
                 onChange={(selected) => {
                   setSelectedCity(selected);
                   setRequestFormData((prev) => ({
                     ...prev,
-                    address: { ...prev.address, city: selected.label },
+                    address: { ...prev.address, city: selected ? selected.label : '' },
                   }));
                 }}
                 placeholder="Select City"
                 isDisabled={!selectedState}
+                styles={{
+                  menu: (provided) => ({ ...provided, zIndex: 10, borderRadius: '8px' }),
+                  control: (provided) => ({
+                    ...provided,
+                    borderRadius: '8px',
+                    borderColor: '#90CAF9',
+                    '&:hover': { borderColor: '#4A6FA5' },
+                    boxShadow: 'none',
+                    minHeight: '50px',
+                  }),
+                  option: (provided, state) => ({
+                    ...provided,
+                    backgroundColor: state.isSelected ? '#3573d7ff' : state.isFocused ? '#E3F2FD' : '#FFFFFF',
+                    color: state.isSelected ? '#FFFFFF' : '#3573d7ff',
+                  }),
+                }}
               />
             </Box>
-
+            <TextField
+              fullWidth
+              margin="normal"
+              label="Postal Code"
+              name="address.postalCode"
+              value={requestFormData.address.postalCode}
+              onChange={handleFormChange}
+              required
+              sx={{
+                '& .MuiInputBase-root': { minHeight: '50px', borderRadius: '8px' },
+                '& .MuiOutlinedInput-root': {
+                  '& fieldset': { borderColor: '#90CAF9' },
+                  '&:hover fieldset': { borderColor: '#4A6FA5' },
+                  '&.Mui-focused fieldset': { borderColor: '#3573d7ff' },
+                },
+              }}
+              inputProps={{ 'aria-label': 'Postal Code' }}
+            />
             <Typography
               variant="h6"
               sx={{
-                fontFamily: 'Roboto, sans-serif',
-                color: '#333',
+                fontFamily: 'Inter, sans-serif',
+                color: '#3573d7ff',
                 mt: 2,
-                mb: 1,
-                fontSize: { xs: '1rem', sm: '1.125rem' },
+                mb: 1.5,
+                fontSize: { xs: '1.1rem', sm: '1.25rem' },
+                fontWeight: 600,
               }}
             >
               Admin Details
@@ -604,7 +1263,14 @@ const Login = () => {
               value={requestFormData.adminName}
               onChange={handleFormChange}
               required
-              sx={{ '& .MuiInputBase-root': { minHeight: '48px' } }}
+              sx={{
+                '& .MuiInputBase-root': { minHeight: '50px', borderRadius: '8px' },
+                '& .MuiOutlinedInput-root': {
+                  '& fieldset': { borderColor: '#90CAF9' },
+                  '&:hover fieldset': { borderColor: '#4A6FA5' },
+                  '&.Mui-focused fieldset': { borderColor: '#3573d7ff' },
+                },
+              }}
               inputProps={{ 'aria-label': 'Admin Name' }}
             />
             <TextField
@@ -616,8 +1282,22 @@ const Login = () => {
               value={requestFormData.adminEmail}
               onChange={handleFormChange}
               required
-              sx={{ '& .MuiInputBase-root': { minHeight: '48px' } }}
+              sx={{
+                '& .MuiInputBase-root': { minHeight: '50px', borderRadius: '8px' },
+                '& .MuiOutlinedInput-root': {
+                  '& fieldset': { borderColor: '#90CAF9' },
+                  '&:hover fieldset': { borderColor: '#4A6FA5' },
+                  '&.Mui-focused fieldset': { borderColor: '#3573d7ff' },
+                },
+              }}
               inputProps={{ 'aria-label': 'Admin Email' }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <EmailOutlinedIcon sx={{ color: '#3573d7ff' }} />
+                  </InputAdornment>
+                ),
+              }}
             />
             <TextField
               fullWidth
@@ -627,30 +1307,52 @@ const Login = () => {
               value={requestFormData.adminPhone}
               onChange={handleFormChange}
               required
-              sx={{ '& .MuiInputBase-root': { minHeight: '48px' } }}
+              sx={{
+                '& .MuiInputBase-root': { minHeight: '50px', borderRadius: '8px' },
+                '& .MuiOutlinedInput-root': {
+                  '& fieldset': { borderColor: '#90CAF9' },
+                  '&:hover fieldset': { borderColor: '#4A6FA5' },
+                  '&.Mui-focused fieldset': { borderColor: '#3573d7ff' },
+                },
+              }}
               inputProps={{ 'aria-label': 'Admin Phone Number' }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <PhoneAndroidOutlinedIcon sx={{ color: '#3573d7ff' }} />
+                  </InputAdornment>
+                ),
+              }}
             />
             {formError && (
-              <Alert severity="error" sx={{ mt: 2, fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>
+              <Alert severity="error" sx={{ mt: 2, fontSize: { xs: '0.85rem', sm: '0.9rem' }, bgcolor: '#FFE4E4' }}>
                 {formError}
               </Alert>
             )}
             {formSuccess && (
-              <Alert severity="success" sx={{ mt: 2, fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>
+              <Alert severity="success" sx={{ mt: 2, fontSize: { xs: '0.85rem', sm: '0.9rem' }, bgcolor: '#E3F2FD' }}>
                 {formSuccess}
               </Alert>
             )}
           </Box>
         </DialogContent>
-        <DialogActions sx={{ p: 2 }}>
+        <DialogActions sx={{ p: 3 }}>
           <Button
             onClick={handleCloseRequestForm}
             sx={{
-              fontFamily: 'Roboto, sans-serif',
-              color: '#5A189A',
+              fontFamily: 'Inter, sans-serif',
+              color: '#3573d7ff',
               textTransform: 'none',
-              '&:hover': { color: '#4C1D95' },
+              fontWeight: 500,
+              borderRadius: 8,
+              px: 3,
+              transition: 'all 0.2s ease',
+              '&:hover': {
+                background: 'rgba(20, 54, 109, 0.1)',
+                color: '#4A6FA5',
+              },
             }}
+            aria-label="Cancel"
           >
             Cancel
           </Button>
@@ -658,14 +1360,22 @@ const Login = () => {
             onClick={handleFormSubmit}
             variant="contained"
             sx={{
-              fontFamily: 'Roboto, sans-serif',
-              background: 'linear-gradient(to right, #5A189A, #90E0EF)',
-              color: 'white',
+              fontFamily: 'Inter, sans-serif',
+              background: 'linear-gradient(90deg, #3573d7ff 0%, #4A6FA5 100%)',
+              color: '#FFFFFF',
               textTransform: 'none',
+              fontWeight: 600,
+              borderRadius: 8,
+              px: 3,
+              boxShadow: '0 4px 16px rgba(20, 54, 109, 0.3)',
+              transition: 'all 0.3s ease',
               '&:hover': {
-                background: 'linear-gradient(to right, #4C1D95, #48CAE4)',
+                background: 'linear-gradient(90deg, #0F2A52 0%, #3B5C8C 100%)',
+                boxShadow: '0 6px 20px rgba(20, 54, 109, 0.4)',
+                transform: 'scale(1.02)',
               },
             }}
+            aria-label="Submit Request"
           >
             Submit Request
           </Button>
