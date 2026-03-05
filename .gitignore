@@ -25,3 +25,4 @@ yarn-error.log*
 backend/config/serviceAccountKey.json
 .env
 node_modules
+
