@@ -3,9 +3,9 @@ import {
   Box, Typography, Button, Paper, Grid, List, ListItem,
   ListItemIcon, ListItemText, Divider, TextField, Collapse,
   Alert, Table, TableContainer, TableBody, TableCell,
-  TableHead, TableRow, Card, CardContent, Link, Stack,
+  TableHead, TableRow, Card, CardContent, Link, 
   Avatar, IconButton, InputAdornment, Switch, FormControlLabel, MenuItem,
-  Drawer, Dialog, DialogTitle, DialogContent, DialogActions, CardHeader,
+  Drawer, Dialog, DialogTitle, DialogContent, DialogActions, 
 } from '@mui/material';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import AddBusinessIcon from '@mui/icons-material/AddBusiness';
@@ -24,9 +24,6 @@ import MenuIcon from '@mui/icons-material/Menu';
 import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined';
 import { doc, setDoc, getDoc, collection, getDocs, updateDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../firebase';
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
-} from 'recharts';
 import Select from 'react-select';
 import { Country, State, City } from 'country-state-city';
 import DashboardContent from './graph';
@@ -64,11 +61,11 @@ const sidebarItems = [
 const AddOrganizationContent = ({
   orgForm, handleFormChange, handleCreateOrgAndAdmin,
   showOrgAdminForm, setShowOrgAdminForm, errorMsg, openDialog, setOpenDialog,
-  accessRequests, setAccessRequests, handleApproveRequest
+  accessRequests,  handleApproveRequest
 }) => {
   const navyText = '#001F54';
   const [selectedRequest, setSelectedRequest] = useState(null);
-  const [approveDialogOpen, setApproveDialogOpen] = useState(false);
+  const [setApproveDialogOpen] = useState(false);
   const [approveForm, setApproveForm] = useState({ adminUsername: '', adminPassword: '' });
   const [approveError, setApproveError] = useState('');
   const [selectedCountry, setSelectedCountry] = useState(null);
@@ -1157,93 +1154,7 @@ const SettingsContent = ({
 };
 
 // --- FOOTER ---
-const Footer = ({ themeMode }) => {
-  return (
-    <Box
-      component="footer"
-      sx={{
-        bgcolor: themeMode === 'dark' ? '#111' : '#111',
-        color: '#ccc',
-        p: { xs: 2, sm: 3, md: 4 },
-        width: '100%',
-        mt: 'auto',
-        borderTop: '1px solid #444',
-      }}
-    >
-      <Grid container spacing={{ xs: 2, sm: 3 }}>
-        <Grid item xs={12} sm={6} md={3}>
-          <Typography variant="body2" sx={{ color: '#fff', mb: 2, fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>
-            © {new Date().getFullYear()} Helpmate. All rights reserved.
-          </Typography>
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <Typography variant="subtitle2" sx={{ color: '#fff', mb: 2, fontWeight: 600, fontSize: { xs: '0.9rem', sm: '1rem' } }}>
-            Navigation
-          </Typography>
-          <Link
-            href="/about-us"
-            sx={{
-              color: '#ccc',
-              textDecoration: 'none',
-              fontSize: { xs: '0.8rem', sm: '0.875rem' },
-              '&:hover': { color: '#2196f3', textDecoration: 'underline' },
-              display: 'block',
-              py: 0.5,
-            }}
-            aria-label="About Us"
-          >
-            About Us
-          </Link>
-          <Link
-            href="/privacy-policy"
-            sx={{
-              color: '#ccc',
-              textDecoration: 'none',
-              fontSize: { xs: '0.8rem', sm: '0.875rem' },
-              mt: 1,
-              display: 'block',
-              py: 0.5,
-              '&:hover': { color: '#2196f3', textDecoration: 'underline' },
-            }}
-            aria-label="Privacy Policy"
-          >
-            Privacy Policy
-          </Link>
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <Typography variant="subtitle2" sx={{ color: '#fff', mb: 2, fontWeight: 600, fontSize: { xs: '0.9rem', sm: '1rem' } }}>
-            Contact Us
-          </Typography>
-          <Typography variant="body2" sx={{ mb: 1, fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>
-            <strong>Email:</strong> support@helpmate.com
-          </Typography>
-          <Typography variant="body2" sx={{ mb: 1, fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>
-            <strong>Phone:</strong> +91 76755465645
-          </Typography>
-          <Typography variant="body2" sx={{ fontSize: { xs: '0.8rem', sm: '0.875rem' } }}>
-            <strong>Address:</strong> Helpmate St, Suite 100, Koramangala, Bengaluru, Karnataka, India-560034
-          </Typography>
-        </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <Typography variant="subtitle2" sx={{ color: '#fff', mb: 2, fontWeight: 600, fontSize: { xs: '0.9rem', sm: '1rem' } }}>
-            Follow Us
-          </Typography>
-          <Box sx={{ display: 'flex', gap: { xs: 1.5, sm: 2 } }}>
-            <Link href="https://instagram.com/helpmate" target="_blank" sx={{ color: '#ccc', '&:hover': { color: '#2196f3' } }} aria-label="Instagram">
-              <InstagramIcon sx={{ fontSize: { xs: 24, sm: 28 } }} />
-            </Link>
-            <Link href="https://x.com/helpmate" target="_blank" sx={{ color: '#ccc', '&:hover': { color: '#2196f3' } }} aria-label="X">
-              <TwitterIcon sx={{ fontSize: { xs: 24, sm: 28 } }} />
-            </Link>
-            <Link href="https://github.com/helpmate" target="_blank" sx={{ color: '#ccc', '&:hover': { color: '#2196f3' } }} aria-label="GitHub">
-              <GitHubIcon sx={{ fontSize: { xs: 24, sm: 28 } }} />
-            </Link>
-          </Box>
-        </Grid>
-      </Grid>
-    </Box>
-  );
-};
+
 
 // --- MAIN DASHBOARD ---
 const SuperAdminDashboard = () => {
@@ -1532,7 +1443,7 @@ const SuperAdminDashboard = () => {
   const handleApproveRequest = async (request, adminUsername, adminPassword) => {
     const {
       orgName, category: field, orgEmail: email, orgPhone: phoneNumber, website,
-      address: { street: address, city, state, postalCode, country },
+      address: { street: address, city, state, country },
       adminName, adminEmail, adminPhone
     } = request;
 
